@@ -6,9 +6,14 @@ import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
 import { config } from "./config";
-import type { ContributorInput, RegisterDataAssetParams, RegistrationRecord } from "./types";
+import type {
+  ContributorInput,
+  RegisterDataAssetParams,
+  RegistrationRecord,
+  SuiRegistrationResult,
+} from "./types";
 
-const textBytes = (value: string): number[] => [...Buffer.from(value, "utf8")];
+export const textBytes = (value: string): number[] => [...Buffer.from(value, "utf8")];
 
 const validateContributors = (contributors: ContributorInput[]): void => {
   const total = contributors.reduce((sum, contributor) => sum + contributor.weight_bps, 0);
@@ -30,7 +35,7 @@ const readJsonArray = async <T>(filePath: string): Promise<T[]> => {
 
 const writeMockRegistration = async (
   params: RegisterDataAssetParams,
-  txDigest: string,
+  result: SuiRegistrationResult,
 ): Promise<void> => {
   const outputFile = path.join(config.outputDir, "registrations.json");
   await mkdir(config.outputDir, { recursive: true });
@@ -41,13 +46,16 @@ const writeMockRegistration = async (
     blob_id: params.blobId,
     contributors: params.contributors,
     data_type: params.dataType,
-    tx_digest: txDigest,
+    tx_digest: result.txDigest,
+    sui_object_id: result.dataAssetObjectId,
+    sui_object_version: result.dataAssetObjectVersion,
+    sui_object_digest: result.dataAssetObjectDigest,
     created_at: Date.now(),
   });
   await writeFile(outputFile, `${JSON.stringify(records, null, 2)}\n`, "utf8");
 };
 
-const signerFromPrivateKey = (): Ed25519Keypair => {
+export const signerFromPrivateKey = (): Ed25519Keypair => {
   if (!config.suiPrivateKey) {
     throw new Error("SUI_PRIVATE_KEY is required when SUI_MOCK=false");
   }
@@ -58,7 +66,9 @@ const signerFromPrivateKey = (): Ed25519Keypair => {
   return Ed25519Keypair.fromSecretKey(decoded.secretKey);
 };
 
-const buildRegisterTransaction = (params: RegisterDataAssetParams): Transaction => {
+export const suiClient = (): SuiClient => new SuiClient({ url: getFullnodeUrl(config.suiNetwork) });
+
+export const buildRegisterTransaction = (params: RegisterDataAssetParams): Transaction => {
   if (!config.packageId) {
     throw new Error("PACKAGE_ID is required when SUI_MOCK=false");
   }
@@ -101,13 +111,60 @@ const buildRegisterTransaction = (params: RegisterDataAssetParams): Transaction 
   return tx;
 };
 
-export const registerDataAssetOnSui = async (params: RegisterDataAssetParams): Promise<string> => {
+const findCreatedDataAsset = (
+  objectChanges: unknown,
+): Pick<SuiRegistrationResult, "dataAssetObjectId" | "dataAssetObjectVersion" | "dataAssetObjectDigest"> => {
+  if (!Array.isArray(objectChanges)) {
+    return {};
+  }
+
+  const objectType = `${config.packageId}::data_asset::DataAsset`;
+  const created = objectChanges.find((change) => {
+    const record = change as { type?: unknown; objectType?: unknown };
+    return record.type === "created" && record.objectType === objectType;
+  }) as { objectId?: string; version?: string; digest?: string } | undefined;
+
+  return {
+    dataAssetObjectId: created?.objectId,
+    dataAssetObjectVersion: created?.version,
+    dataAssetObjectDigest: created?.digest,
+  };
+};
+
+export const executeSuiTransaction = async (transaction: Transaction) => {
+  const client = suiClient();
+  const signer = signerFromPrivateKey();
+
+  const result = await client.signAndExecuteTransaction({
+    signer,
+    transaction,
+    options: {
+      showEffects: true,
+      showEvents: true,
+      showObjectChanges: true,
+      showBalanceChanges: true,
+    },
+  });
+
+  if (result.effects?.status.status !== "success") {
+    throw new Error(`Sui transaction failed: ${result.effects?.status.error ?? "unknown error"}`);
+  }
+
+  return result;
+};
+
+export const registerDataAssetOnSui = async (
+  params: RegisterDataAssetParams,
+): Promise<SuiRegistrationResult> => {
   validateContributors(params.contributors);
 
   if (config.suiMock) {
-    const txDigest = `mock_tx_${params.assetId}_${params.blobId.slice(0, 16)}`;
-    await writeMockRegistration(params, txDigest);
-    return txDigest;
+    const result = {
+      txDigest: `mock_tx_${params.assetId}_${params.blobId.slice(0, 16)}`,
+      dataAssetObjectId: `mock_object_${params.assetId}`,
+    };
+    await writeMockRegistration(params, result);
+    return result;
   }
 
   // The current Move API requires vector<Contributor>. This wrapper constructs
@@ -115,18 +172,10 @@ export const registerDataAssetOnSui = async (params: RegisterDataAssetParams): P
   // Sui addresses for rider/merchant/consumer aggregate identities. If the app
   // wants to pass business IDs directly later, add a simpler Move entry such as:
   // register_data_asset_simple(blob_id, rider_addr, merchant_addr, consumer_addr, data_type).
-  const client = new SuiClient({ url: getFullnodeUrl(config.suiNetwork) });
-  const signer = signerFromPrivateKey();
   const transaction = buildRegisterTransaction(params);
-  const result = await client.signAndExecuteTransaction({
-    signer,
-    transaction,
-    options: { showEffects: true },
-  });
-
-  if (result.effects?.status.status !== "success") {
-    throw new Error(`Sui transaction failed: ${result.effects?.status.error ?? "unknown error"}`);
-  }
-
-  return result.digest;
+  const result = await executeSuiTransaction(transaction);
+  const dataAssetObject = findCreatedDataAsset(result.objectChanges);
+  const registrationResult = { txDigest: result.digest, ...dataAssetObject };
+  await writeMockRegistration(params, registrationResult);
+  return registrationResult;
 };

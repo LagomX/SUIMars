@@ -29,6 +29,7 @@ simulator/output/
 walrus-uploader/output/
 license-flow/output/
 seal-mock/output/
+publish-testnet*.json
 
 # Sui Move build artifacts
 contracts/mars/build/

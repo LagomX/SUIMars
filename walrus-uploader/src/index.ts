@@ -152,7 +152,7 @@ const main = async (): Promise<void> => {
       const blobId = await uploadEncryptedBlob(encrypted.ciphertext);
       validateBlobId(blobId);
 
-      const txDigest = await registerDataAssetOnSui({
+      const registration = await registerDataAssetOnSui({
         assetId: roleAsset.assetId,
         packageId: dataPackage.package_id,
         blobId,
@@ -180,7 +180,10 @@ const main = async (): Promise<void> => {
         merchant_id: dataPackage.merchant_id,
         contributor_id: roleAsset.contributorId,
         blob_id: blobId,
-        tx_digest: txDigest,
+        tx_digest: registration.txDigest,
+        sui_object_id: registration.dataAssetObjectId,
+        sui_object_version: registration.dataAssetObjectVersion,
+        sui_object_digest: registration.dataAssetObjectDigest,
         data_type: roleAsset.dataType,
         ciphertext_bytes: encrypted.ciphertext.length,
         key_id: keyId,
@@ -188,7 +191,7 @@ const main = async (): Promise<void> => {
       });
 
       console.log(
-        `${roleAsset.assetId}: data_type=${roleAsset.dataType} blob_id=${blobId} tx=${txDigest}`,
+        `${roleAsset.assetId}: data_type=${roleAsset.dataType} blob_id=${blobId} tx=${registration.txDigest}`,
       );
     }
   }

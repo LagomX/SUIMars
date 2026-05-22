@@ -92,6 +92,12 @@ cd ../mars-app && npm install && npm run start
 
 Then open `mars-app` and navigate to the Rider, Merchant, or Customer **Data** tabs to see role-owned assets, licenses sold, earnings, and Seal-style access verification.
 
+## Sui Testnet
+
+The mock protocol now has a Sui Testnet runbook and runner scripts for publishing the Move package, registering encrypted DataAssets, pricing/listing assets, minting mock USDC, purchasing DataLicenses, and distributing DataAsset rewards.
+
+See [`TESTNET.md`](./TESTNET.md).
+
 Current mock demo numbers:
 
 - 100 simulated orders

@@ -37,7 +37,13 @@ export const config = {
   suiMock: boolFromEnv(process.env.SUI_MOCK, true),
   walrusMock: boolFromEnv(process.env.WALRUS_MOCK, true),
   walrusEpochs: intFromEnv(process.env.WALRUS_EPOCHS, 5),
+  walrusCliPath: process.env.WALRUS_CLI_PATH ?? "walrus",
+  walrusContext: process.env.WALRUS_CONTEXT ?? "testnet",
+  walrusConfig: process.env.WALRUS_CONFIG,
   suiPrivateKey: process.env.SUI_PRIVATE_KEY,
+  adminCapId: process.env.ADMIN_CAP_ID ?? "",
+  usdcTreasuryCapId: process.env.USDC_TREASURY_CAP_ID ?? "",
+  usdcDecimals: intFromEnv(process.env.USDC_DECIMALS, 6),
   outputDir: path.resolve(process.cwd(), "output"),
   simulatorPackagesDir: path.resolve(process.cwd(), "../simulator/output/packages"),
   contributorAddresses: {

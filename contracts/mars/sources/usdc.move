@@ -11,8 +11,8 @@ module mars::usdc {
         let (treasury_cap, metadata) = coin::create_currency(
             witness,
             6,                          // 6 decimal places, matching real USDC
-            b"USDC",
-            b"USD Coin",
+            b"TestUSDC",
+            b"Test USD Coin",
             b"Mock USDC for Mars testnet",
             option::none(),
             ctx,

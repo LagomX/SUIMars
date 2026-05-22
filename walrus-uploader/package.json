@@ -4,7 +4,17 @@
   "scripts": {
     "build": "tsc --noEmit",
     "upload": "ts-node src/index.ts",
-    "upload:mock": "WALRUS_MOCK=true SUI_MOCK=true ts-node src/index.ts"
+    "upload:mock": "WALRUS_MOCK=true SUI_MOCK=true ts-node src/index.ts",
+    "upload:sui-testnet": "WALRUS_MOCK=true SUI_MOCK=false ts-node src/index.ts",
+    "upload:testnet": "WALRUS_MOCK=false SUI_MOCK=false ts-node src/index.ts",
+    "chain:mint-usdc": "SUI_MOCK=false ts-node src/chain.ts mint-usdc",
+    "chain:price-assets": "SUI_MOCK=false ts-node src/chain.ts price-assets",
+    "chain:list-assets": "SUI_MOCK=false ts-node src/chain.ts list-assets",
+    "chain:prepare-assets": "SUI_MOCK=false ts-node src/chain.ts prepare-assets",
+    "chain:purchase-sample": "SUI_MOCK=false ts-node src/chain.ts purchase-sample",
+    "chain:distribute-rewards": "SUI_MOCK=false ts-node src/chain.ts distribute-rewards",
+    "chain:run-sample": "SUI_MOCK=false ts-node src/chain.ts run-sample",
+    "chain:extract-publish": "ts-node src/extract-publish.ts"
   },
   "dependencies": {
     "@mysten/sui": "^1.43.1",

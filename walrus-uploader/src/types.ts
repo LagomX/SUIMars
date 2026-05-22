@@ -70,6 +70,9 @@ export interface UploadResult {
   contributor_id: string;
   blob_id: string;
   tx_digest: string;
+  sui_object_id?: string;
+  sui_object_version?: string;
+  sui_object_digest?: string;
   data_type: string;
   ciphertext_bytes: number;
   key_id: string;
@@ -95,5 +98,15 @@ export interface RegistrationRecord {
   contributors: ContributorInput[];
   data_type: string;
   tx_digest: string;
+  sui_object_id?: string;
+  sui_object_version?: string;
+  sui_object_digest?: string;
   created_at: number;
+}
+
+export interface SuiRegistrationResult {
+  txDigest: string;
+  dataAssetObjectId?: string;
+  dataAssetObjectVersion?: string;
+  dataAssetObjectDigest?: string;
 }
