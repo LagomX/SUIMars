@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Expo / React Native
+.expo/
+dist/
+web-build/
+
+# Build outputs
+build/
+dist/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Generated mock protocol outputs
+simulator/output/
+walrus-uploader/output/
+license-flow/output/
+seal-mock/output/
+
+# Sui Move build artifacts
+contracts/mars/build/
+contracts/mars/Move.lock

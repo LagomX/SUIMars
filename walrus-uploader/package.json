@@ -1,0 +1,19 @@
+{
+  "name": "mars-walrus-uploader",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "upload": "ts-node src/index.ts",
+    "upload:mock": "WALRUS_MOCK=true SUI_MOCK=true ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.43.1",
+    "@mysten/walrus": "^0.3.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}
