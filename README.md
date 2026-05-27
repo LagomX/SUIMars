@@ -97,33 +97,7 @@ Python buyer-side licensed data pipeline. Fetches licensed DataAssets, decrypts 
 ### `mars-app/`
 Expo/React Native ownership dashboard showing assets, licenses sold, USDC earned, and Seal access status per role.
 
-## Business Flow
-
-Mars models a full on-chain data economy across four roles: **data owners** (riders, merchants, consumers), an **AI Agent** (holds `AdminCap`), **AI buyers**, and **Seal key servers**.
-
-| # | Stage | Actor | On-chain call or command | Output |
-|---|-------|-------|--------------------------|--------|
-| 1 | Simulate users and delivery orders | Dev | `pnpm simulator:wallets` + `pnpm simulator:generate` | 640 wallets, 16 043 orders |
-| 2 | Complete orders, generate delivery event data | Simulator | embedded in DataAsset JSON by simulator | rider / merchant / consumer event arrays |
-| 3 | Package events into encrypted datasets | Data owner | `pnpm walrus:upload` — AES-256-GCM per asset | ciphertext blobs |
-| 4 | Upload encrypted blobs to Walrus | Data owner | `pnpm walrus:upload` — Walrus store | `blob_id` per asset |
-| 5 | Register `DataAsset` objects on Sui | Data owner | `data_asset::register_data_asset(blob_id, contributors, data_type)` | shared `DataAsset` Sui object |
-| 6 | AI Agent scores quality and suggests price | AI Agent | `data_asset::set_quality_and_price(AdminCap, asset, score, price)` | `quality_score` + `price_usdc` on-chain |
-| 7 | Contributor approves listing | Contributor | `data_asset::set_for_sale(asset, true)` | `for_sale = true` on-chain |
-| 8 | AI buyer purchases `DataLicense` in USDC | AI Buyer | `data_license::purchase_access(asset, usdc_coin)` | `DataLicense` minted; reward pool funded |
-| 9 | Seal verifies `DataLicense` and releases AES key | Seal servers | `data_license::seal_approve(id, license, asset)` dry-run PTB | AES key returned to buyer |
-| 10 | Buyer decrypts the dataset locally | AI Buyer | `pnpm seal:decrypt` — AES-256-GCM | plaintext `PersonalDataAsset` |
-| 11 | Buyer trains ETA / demand / dispatch models | AI Buyer | `scripts/run_mars_ai_pipeline.sh` | demand model + dispatch scores |
-| 12 | USDC rewards distributed to contributors | Anyone | `data_asset::distribute_reward(asset)` | USDC split by `weight_bps` |
-
-**Stages 1–5 and 9–11** can run locally against mock services — no Sui deployment needed.  
-**Stages 6–8 and 12** require a live Sui testnet deployment (see [Testnet Deployment](#testnet-deployment)).
-
----
-
 ## Developer Quick Start
-
-> Step titles show the Business Flow stage(s) each command covers.
 
 ### Prerequisites
 
@@ -139,43 +113,62 @@ pip3 install -r aggregator/requirements.txt
 pip3 install -r ai-agent/requirements.txt
 ```
 
-### 1. Generate Sui Testnet Wallets  *(Stage 1)*
+---
+
+### 1. Simulator — Generate real-world delivery event data
 
 ```bash
-pnpm simulator:wallets
+pnpm simulator:wallets    # create 100 riders, 40 merchants, 500 consumers (real Ed25519 keypairs)
+pnpm simulator:generate   # produce 640 PersonalDataAssets + 16 043 delivery orders
 ```
 
-Generates 100 riders, 40 merchants, 500 consumers with real Ed25519 keypairs.
-Private keys are written to `simulator/users/*.json` (gitignored).
+Each `PersonalDataAsset` is role-separated (`rider_mobility`, `merchant_operations`, `consumer_demand`) and embeds the raw delivery events that belong to that wallet.
+Private keys are written to `simulator/users/*.json` (gitignored — never use for mainnet).
 
-### 2. Simulate Delivery Orders and Event Data  *(Stages 1–2)*
+---
 
-```bash
-pnpm simulator:generate
-```
-
-Produces 640 role-separated `PersonalDataAsset` objects (rider mobility, merchant operations, consumer demand) and 16 043 simulated delivery orders. Each DataAsset embeds the raw delivery events that belong to that user.
-
-### 3. Encrypt, Upload to Walrus, and Register on Sui  *(Stages 3–5)*
+### 2. Walrus — Encrypt and store datasets as decentralized blobs
 
 ```bash
-# Mock mode (no Walrus CLI needed — uses SHA-256 blob IDs locally)
+# Mock mode — no Walrus CLI needed (uses local SHA-256 blob IDs)
 MOCK_WALRUS=true pnpm walrus:upload
 
-# Real Walrus testnet (requires walrus CLI)
+# Real Walrus testnet
 pnpm walrus:upload
 ```
 
 For each DataAsset this command:
-- Encrypts the raw events with AES-256-GCM (Stage 3)
-- Uploads the ciphertext blob to Walrus → returns `blob_id` (Stage 4)
-- Registers the Seal-encrypted AES key bundle (preparation for Stage 9)
-- Calls `data_asset::register_data_asset` on Sui → creates a shared `DataAsset` object (Stage 5)
+- Encrypts the raw event JSON with **AES-256-GCM** (raw key never written to disk)
+- Uploads the ciphertext blob to Walrus → receives a `blob_id`
+- Wraps the AES key with **Seal** (`SealClient.encrypt`) → stores the encrypted key bundle
 
-> Stages 6 (AI Agent pricing), 7 (listing), 8 (license purchase), and 12 (reward distribution)  
-> require a live Sui testnet deployment. See [Testnet Deployment](#testnet-deployment).
+---
 
-### 4. Seal-Gated Decrypt  *(Stages 9–10)*
+### 3. Sui — Register contributor-owned DataAssets and DataLicenses
+
+```bash
+# DataAssets are registered automatically by walrus:upload via register_data_asset PTB.
+# On testnet, run the full on-chain flow:
+
+cd contracts/mars && sui move test          # verify 21/21 tests pass
+sui client publish --json > ../../publish-testnet.json
+
+pnpm walrus:upload                          # registers DataAsset objects on-chain
+
+pnpm --dir walrus-uploader chain:price-assets   # AI Agent: set_quality_and_price (AdminCap)
+pnpm --dir walrus-uploader chain:list-assets    # Contributor: set_for_sale(true)
+
+pnpm --dir walrus-uploader chain:mint-usdc      # mint TestUSDC for the buyer
+pnpm --dir contracts prepare:data-license       # AI buyer: purchase_access → DataLicense minted
+
+pnpm --dir walrus-uploader chain:distribute-rewards  # anyone: distribute_reward by weight_bps
+```
+
+See [`TESTNET.md`](./TESTNET.md) for the full deployment runbook.
+
+---
+
+### 4. Seal — Release AES keys only to licensed buyers
 
 **Local demo — no Sui deployment needed:**
 
@@ -183,7 +176,8 @@ For each DataAsset this command:
 pnpm seal:decrypt:mock
 ```
 
-Simulates the Seal DataLicense ownership check using a local demo AES key. To test the access-denied path:
+Simulates the `DataLicense` ownership check using a local demo AES key.
+To verify the access-denied path:
 
 ```bash
 MOCK_BUYER_HAS_LICENSE=false pnpm seal:decrypt:mock
@@ -195,9 +189,11 @@ MOCK_BUYER_HAS_LICENSE=false pnpm seal:decrypt:mock
 MOCK_SEAL=false pnpm seal:decrypt
 ```
 
-Builds a PTB calling `data_license::seal_approve` on Sui, submits to Seal key servers (Stage 9), and decrypts the Walrus blob locally with the recovered AES key (Stage 10). Requires a deployed Mars package and a purchased `DataLicense`.
+Builds a PTB calling `data_license::seal_approve` on Sui. Seal key servers dry-run the PTB — if the caller holds a valid `DataLicense`, the AES key is released and the Walrus blob is decrypted locally.
 
-### 5. Train AI Models  *(Stage 11)*
+---
+
+### 5. AI Training — Train ETA, demand, and dispatch models locally
 
 ```bash
 scripts/run_mars_ai_pipeline.sh
@@ -206,43 +202,15 @@ scripts/run_mars_ai_pipeline.sh
 Or step by step:
 
 ```bash
-python3 aggregator/main.py                                        # merge licensed events
-python3 ai-agent/demand_prediction/train_demand_model.py          # LightGBM demand model
-python3 ai-agent/demand_prediction/predict_demand.py              # per-grid forecast
-python3 ai-agent/dispatch_optimization/assign_rider.py            # best-rider scoring
+python3 aggregator/main.py                                   # merge licensed rider/merchant/consumer events
+python3 ai-agent/demand_prediction/train_demand_model.py     # LightGBM demand model (Poisson objective)
+python3 ai-agent/demand_prediction/predict_demand.py         # per-grid 30-min demand forecast
+python3 ai-agent/dispatch_optimization/assign_rider.py       # best-rider dispatch scoring
 ```
 
 ## Testnet Deployment
 
-See [`TESTNET.md`](./TESTNET.md) for the full runbook. The commands below cover all 12 Business Flow stages end-to-end:
-
-```bash
-# Prerequisite: publish the Move package
-cd contracts/mars && sui move test          # verify 21/21 tests pass
-sui client publish --json > ../../publish-testnet.json
-
-# Stages 3–5: encrypt, upload to Walrus, register DataAssets on Sui
-pnpm walrus:upload
-
-# Stage 6: AI Agent scores quality and sets price (requires AdminCap)
-pnpm --dir walrus-uploader chain:price-assets
-
-# Stage 7: contributor lists the asset for sale
-pnpm --dir walrus-uploader chain:list-assets
-
-# Stage 8: AI buyer mints USDC and purchases DataLicense
-pnpm --dir walrus-uploader chain:mint-usdc
-pnpm --dir contracts prepare:data-license
-
-# Stages 9–10: Seal verifies DataLicense and buyer decrypts locally
-MOCK_SEAL=false pnpm seal:decrypt
-
-# Stage 11: buyer trains AI models on the decrypted data
-scripts/run_mars_ai_pipeline.sh
-
-# Stage 12: distribute USDC rewards to contributors by weight_bps
-pnpm --dir walrus-uploader chain:distribute-rewards
-```
+See [`TESTNET.md`](./TESTNET.md) for the full step-by-step runbook covering Sui publish, Walrus upload, on-chain DataAsset registration, AI Agent pricing, contributor listing, DataLicense purchase, Seal-gated decrypt, and reward distribution.
 
 ## Outputs
 
