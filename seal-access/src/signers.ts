@@ -1,3 +1,13 @@
+/**
+ * Seal-access signer helpers.
+ *
+ * The keystore-parsing logic (activeSuiConfig / signerFromSuiKeystore) is also
+ * present in contracts/suiUtils.ts (canonical) and
+ * walrus-uploader/src/suiSealRegistration.ts — each lives in a separate npm
+ * package so sharing requires a dedicated workspace package.  If you change
+ * the parsing behaviour here, apply the same change to both other copies.
+ */
+
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -49,7 +59,7 @@ export const signerFromSuiKeystore = async (): Promise<Ed25519Keypair> => {
     if (bytes[0] !== 0) {
       continue;
     }
-    const keypair = Ed25519Keypair.fromSecretKey(bytes.slice(1));
+    const keypair = Ed25519Keypair.fromSecretKey(bytes.subarray(1));
     if (keypair.getPublicKey().toSuiAddress().toLowerCase() === activeAddress) {
       return keypair;
     }

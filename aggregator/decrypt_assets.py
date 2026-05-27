@@ -1,52 +1,93 @@
+"""
+Load decrypted DataAsset JSON files produced by the Seal + Walrus batch decrypt step.
+
+After fetch_assets.fetch_licensed_assets() runs, all blobs are already decrypted
+by the TypeScript seal-access/src/batchDecrypt.ts script.  This module only reads
+the resulting files — no cryptographic operations happen here.
+
+Expected layout after batch decrypt:
+    aggregator/output/buyer_workspace/decrypted_assets/
+        consumer_demand/
+            asset_consumer_001_consumer_demand.json
+            ...
+        merchant_operations/
+            asset_merchant_001_merchant_operations.json
+            ...
+        rider_mobility/
+            asset_rider_001_rider_mobility.json
+            ...
+"""
+
 from __future__ import annotations
 
-import base64
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
 
-def load_mock_keys(simulator_output: Path = Path("simulator/output")) -> dict[str, str]:
-    key_path = simulator_output / "mock_walrus" / "mock_keys.json"
-    if not key_path.exists():
-        raise FileNotFoundError(f"Missing mock key file: {key_path}")
-    return json.loads(key_path.read_text())
+def load_decrypted_assets(
+    buyer_dir: Path = Path("aggregator/output/buyer_workspace"),
+) -> list[dict[str, Any]]:
+    """
+    Load all decrypted DataAsset JSON files from buyer_dir/decrypted_assets/.
 
+    Returns a flat list of asset dicts, each with at minimum:
+        asset_id, owner_id, role, data_type, contributors, events
+    """
+    decrypted_dir = buyer_dir / "decrypted_assets"
 
-def decrypt_asset(envelope: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
-    key_id = envelope["key_id"]
-    if key_id not in keys:
-        raise PermissionError(f"No mock key available for {envelope['asset_id']}")
-    if envelope.get("encryption") != "mock-base64":
-        raise ValueError(f"Unsupported encryption mode: {envelope.get('encryption')}")
-    plaintext = base64.b64decode(envelope["ciphertext_base64"]).decode("utf-8")
-    return json.loads(plaintext)
+    if not decrypted_dir.exists():
+        raise FileNotFoundError(
+            f"Decrypted assets directory not found: {decrypted_dir}\n"
+            "Run fetch_assets.fetch_licensed_assets() first."
+        )
+
+    asset_paths = sorted(decrypted_dir.glob("*/*.json"))
+    if not asset_paths:
+        raise ValueError(
+            f"No decrypted asset files found under {decrypted_dir}. "
+            "The batch-decrypt step may have produced zero assets."
+        )
+
+    assets: list[dict[str, Any]] = []
+    for asset_path in asset_paths:
+        try:
+            asset = json.loads(asset_path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ValueError(f"Could not read {asset_path}: {exc}") from exc
+
+        if "data_type" not in asset or "events" not in asset:
+            raise ValueError(
+                f"{asset_path} is missing required fields (data_type, events). "
+                "The blob may be corrupted or from an incompatible format."
+            )
+
+        assets.append(asset)
+
+    return assets
 
 
 def decrypt_licensed_assets(
     buyer_dir: Path = Path("aggregator/output/buyer_workspace"),
-    simulator_output: Path = Path("simulator/output"),
 ) -> list[dict[str, Any]]:
-    licensed_dir = buyer_dir / "licensed_assets"
-    decrypted_dir = buyer_dir / "decrypted_assets"
-    if decrypted_dir.exists():
-        shutil.rmtree(decrypted_dir)
-    decrypted_dir.mkdir(parents=True, exist_ok=True)
+    """
+    Convenience wrapper — load decrypted assets and print a summary.
 
-    keys = load_mock_keys(simulator_output)
-    assets: list[dict[str, Any]] = []
-    for encrypted_path in sorted(licensed_dir.glob("*/*.json")):
-        envelope = json.loads(encrypted_path.read_text())
-        asset = decrypt_asset(envelope, keys)
-        target = decrypted_dir / asset["data_type"] / f"{asset['asset_id']}.json"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(asset, indent=2) + "\n")
-        assets.append(asset)
+    Crypto is handled by the TypeScript batch-decrypt script.  This function
+    only reads the files that script already wrote to disk.
+    """
+    assets = load_decrypted_assets(buyer_dir)
+    by_type: dict[str, int] = {}
+    for asset in assets:
+        by_type[asset["data_type"]] = by_type.get(asset["data_type"], 0) + 1
+
+    print(f"Loaded {len(assets)} decrypted asset(s):")
+    for data_type, count in sorted(by_type.items()):
+        print(f"  {data_type}: {count}")
 
     return assets
 
 
 if __name__ == "__main__":
     decrypted = decrypt_licensed_assets()
-    print(f"Decrypted {len(decrypted)} licensed DataAssets")
+    print(f"\nTotal: {len(decrypted)} assets")

@@ -1,6 +1,6 @@
 import path from "node:path";
-import { config } from "./config";
-import { uploadDatasets } from "./uploadDataset";
+import { config } from "./config.js";
+import { uploadDatasets } from "./uploadDataset.js";
 
 const printUsage = (): void => {
   console.log("Usage: pnpm upload");

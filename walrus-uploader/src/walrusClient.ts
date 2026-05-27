@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { config } from "./config";
+import { config } from "./config.js";
 
 const execFileAsync = promisify(execFile);
 

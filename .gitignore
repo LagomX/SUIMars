@@ -27,14 +27,13 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
-# Generated mock protocol outputs
+# Generated pipeline outputs (never commit — contain keys, blobs, AI model artefacts)
 simulator/output/
 simulator/users/*.json
 !simulator/users/*.example.json
 simulator/wallets/generated/*.json
 walrus-uploader/output/
-license-flow/output/
-seal-mock/output/
+seal-access/output/
 aggregator/output/
 ai-agent/demand_prediction/output/
 ai-agent/dispatch_optimization/output/

@@ -10,11 +10,12 @@ import type {
   SealKeyRegistryRecord,
 } from "./types.js";
 
-export const createSuiClient = (): SealCompatibleClient =>
-  new SuiGrpcClient({
-    network: "testnet",
-    baseUrl: config.suiRpcUrl,
-  } as ConstructorParameters<typeof SuiGrpcClient>[0]) as SealCompatibleClient;
+export const createSuiClient = (): SealCompatibleClient => {
+  // SuiGrpcClient satisfies SealCompatibleClient structurally; the cast is
+  // required because the @mysten/seal type is narrower than the full gRPC client.
+  const client = new SuiGrpcClient({ network: "testnet", baseUrl: config.suiRpcUrl });
+  return client as unknown as SealCompatibleClient;
+};
 
 export const keyServerConfigs = (): KeyServerConfig[] => [
   {

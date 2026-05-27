@@ -1,11 +1,9 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import dotenv from "dotenv";
 import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
-import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
-import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
+import { loadSigner, parsePublishedPackageId } from "./suiUtils";
 
 dotenv.config({ path: path.join(__dirname, ".env") });
 
@@ -55,73 +53,6 @@ const textBytes = (value: string): number[] => [...Buffer.from(value, "utf8")];
 const readJson = async <T>(filePath: string): Promise<T> =>
   JSON.parse(await readFile(filePath, "utf8")) as T;
 
-const parsePublishedPackageId = async (): Promise<string> => {
-  if (config.packageId?.startsWith("0x")) {
-    return config.packageId;
-  }
-
-  const publishedToml = await readFile(path.join(contractsRoot, "mars", "Published.toml"), "utf8");
-  const testnetSection = publishedToml.match(/\[published\.testnet\]([\s\S]*?)(?:\n\[|$)/);
-  const packageMatch = testnetSection?.[1]?.match(/published-at\s*=\s*"([^"]+)"/);
-  const packageId = packageMatch?.[1];
-  if (!packageId?.startsWith("0x")) {
-    throw new Error("PACKAGE_ID is not set and contracts/mars/Published.toml has no published.testnet package id");
-  }
-  return packageId;
-};
-
-const activeSuiConfig = async (): Promise<{ activeAddress: string; keystorePath: string }> => {
-  const clientYamlPath = path.join(os.homedir(), ".sui", "sui_config", "client.yaml");
-  const yaml = await readFile(clientYamlPath, "utf8");
-  const activeAddress = yaml.match(/active_address:\s*"?([^"\n]+)"?/)?.[1]?.trim();
-  const keystorePath =
-    yaml.match(/keystore:\s*\n\s*File:\s*([^\n]+)/)?.[1]?.trim() ??
-    path.join(os.homedir(), ".sui", "sui_config", "sui.keystore");
-
-  if (!activeAddress?.startsWith("0x")) {
-    throw new Error(`Could not find active_address in ${clientYamlPath}`);
-  }
-
-  return {
-    activeAddress: activeAddress.toLowerCase(),
-    keystorePath: keystorePath.replace(/^~/, os.homedir()),
-  };
-};
-
-const signerFromPrivateKey = (privateKey: string): Ed25519Keypair => {
-  const decoded = decodeSuiPrivateKey(privateKey);
-  if (decoded.schema !== "ED25519") {
-    throw new Error(`Only ED25519 private keys are supported by this script, got ${decoded.schema}`);
-  }
-  return Ed25519Keypair.fromSecretKey(decoded.secretKey);
-};
-
-const signerFromSuiKeystore = async (): Promise<Ed25519Keypair> => {
-  const { activeAddress, keystorePath } = await activeSuiConfig();
-  const keys = await readJson<string[]>(keystorePath);
-
-  for (const encoded of keys) {
-    const bytes = Buffer.from(encoded, "base64");
-    const schemeFlag = bytes[0];
-    if (schemeFlag !== 0) {
-      continue;
-    }
-
-    const keypair = Ed25519Keypair.fromSecretKey(bytes.slice(1));
-    if (keypair.getPublicKey().toSuiAddress().toLowerCase() === activeAddress) {
-      return keypair;
-    }
-  }
-
-  throw new Error(`Could not find the active ED25519 Sui address in ${keystorePath}`);
-};
-
-const loadSigner = async (): Promise<Ed25519Keypair> => {
-  if (process.env.SUI_PRIVATE_KEY) {
-    return signerFromPrivateKey(process.env.SUI_PRIVATE_KEY);
-  }
-  return signerFromSuiKeystore();
-};
 
 const validateManifestRecord = (record: UploadManifestRecord): void => {
   if (!record.user_id?.trim()) {
@@ -199,8 +130,8 @@ const findCreatedDataAssetId = (objectChanges: unknown, packageId: string): stri
 };
 
 const main = async (): Promise<void> => {
-  const packageId = await parsePublishedPackageId();
-  const signer = await loadSigner();
+  const packageId = await parsePublishedPackageId(contractsRoot);
+  const signer = await loadSigner(process.env.SUI_PRIVATE_KEY);
   const client = new SuiClient({ url: getFullnodeUrl(config.network as "testnet") });
   const manifest = await readJson<UploadManifestRecord[]>(config.manifestPath);
   const selected = config.maxRegistrations ? manifest.slice(0, config.maxRegistrations) : manifest;

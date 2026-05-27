@@ -28,7 +28,7 @@ export const readJson = async <T>(filePath: string, label: string): Promise<T> =
 };
 
 export const parsePublishedPackageIds = async (): Promise<{ originalId: string; publishedAt: string }> => {
-  if (config.sealPackageId.startsWith("0x")) {
+  if (config.sealPackageId?.startsWith("0x")) {
     return { originalId: config.sealPackageId, publishedAt: config.sealPackageId };
   }
 

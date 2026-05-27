@@ -11,6 +11,7 @@
     "seal:build": "pnpm --dir seal-access build",
     "seal:typecheck": "pnpm --dir seal-access typecheck",
     "seal:decrypt": "pnpm --dir seal-access decrypt",
-    "seal:decrypt:mock": "pnpm --dir seal-access decrypt:mock"
+    "seal:decrypt:mock": "pnpm --dir seal-access decrypt:mock",
+    "aggregator:decrypt": "pnpm --dir seal-access batch-decrypt"
   }
 }

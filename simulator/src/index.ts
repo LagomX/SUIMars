@@ -2,7 +2,7 @@ import { generateSimulation } from "./generator";
 import { writeSimulatorOutput } from "./output";
 
 const main = async (): Promise<void> => {
-  const simulation = generateSimulation(42);
+  const simulation = await generateSimulation(42);
   await writeSimulatorOutput(simulation);
 
   console.log("Mars simulator generated personal raw DataAssets");

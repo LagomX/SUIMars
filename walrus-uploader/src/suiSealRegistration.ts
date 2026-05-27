@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { config } from "./config";
-import type { ENCRYPTION_ALGORITHM } from "./encrypt";
+import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { Transaction } from "@mysten/sui/transactions";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+import type { SuiClientTypes } from "@mysten/sui/client";
+import { SealClient } from "@mysten/seal";
+import { config } from "./config.js";
+import type { ENCRYPTION_ALGORITHM } from "./encrypt.js";
 
 type Contributor = {
   addr: string;
@@ -65,6 +71,12 @@ type PackageIds = {
   publishedAt: string;
 };
 
+/** gRPC transaction response with effects and objectTypes included. */
+type TxWithEffectsAndTypes = SuiClientTypes.Transaction<{
+  effects: true;
+  objectTypes: true;
+}>;
+
 const textBytes = (value: string): number[] => [...Buffer.from(value, "utf8")];
 
 const readJson = async <T>(filePath: string): Promise<T> =>
@@ -106,10 +118,7 @@ const activeSuiConfig = async (): Promise<{ activeAddress: string; keystorePath:
   };
 };
 
-const loadSigner = async (): Promise<unknown> => {
-  const { decodeSuiPrivateKey } = await import("@mysten/sui/cryptography");
-  const { Ed25519Keypair } = await import("@mysten/sui/keypairs/ed25519");
-
+const loadSigner = async (): Promise<Ed25519Keypair> => {
   if (config.suiPrivateKey) {
     const decoded = decodeSuiPrivateKey(config.suiPrivateKey);
     if (decoded.scheme !== "ED25519") {
@@ -125,7 +134,7 @@ const loadSigner = async (): Promise<unknown> => {
     if (bytes[0] !== 0) {
       continue;
     }
-    const keypair = Ed25519Keypair.fromSecretKey(bytes.slice(1));
+    const keypair = Ed25519Keypair.fromSecretKey(bytes.subarray(1));
     if (keypair.getPublicKey().toSuiAddress().toLowerCase() === activeAddress) {
       return keypair;
     }
@@ -134,16 +143,22 @@ const loadSigner = async (): Promise<unknown> => {
   throw new Error(`Could not find active ED25519 Sui key in ${keystorePath}`);
 };
 
-const findCreatedDataAssetId = (transaction: any): string => {
+const findCreatedDataAssetId = (transaction: TxWithEffectsAndTypes, packageId: string): string => {
   const changedObjects = transaction.effects?.changedObjects;
   const objectTypes = transaction.objectTypes;
-  if (!Array.isArray(changedObjects) || typeof objectTypes !== "object" || objectTypes === null) {
+  if (!changedObjects || typeof objectTypes !== "object" || objectTypes === null) {
     throw new Error("Sui transaction result did not include effects.changedObjects and objectTypes");
   }
 
-  const created = changedObjects.find((change: { objectId?: string; idOperation?: string }) => {
+  const expectedTypeSuffix = "::data_asset::DataAsset";
+  const created = changedObjects.find((change) => {
     const objectType = change.objectId ? objectTypes[change.objectId] : undefined;
-    return change.idOperation === "Created" && objectType?.endsWith("::data_asset::DataAsset");
+    return (
+      change.idOperation === "Created" &&
+      typeof objectType === "string" &&
+      objectType.startsWith(packageId) &&
+      objectType.endsWith(expectedTypeSuffix)
+    );
   });
 
   if (!created?.objectId?.startsWith("0x")) {
@@ -153,12 +168,11 @@ const findCreatedDataAssetId = (transaction: any): string => {
 };
 
 const registerDataAsset = async (
-  client: any,
-  signer: any,
+  client: SuiGrpcClient,
+  signer: Ed25519Keypair,
   packageId: string,
   manifest: UploadManifestRecord,
 ): Promise<string> => {
-  const { Transaction } = await import("@mysten/sui/transactions");
   const tx = new Transaction();
   const contributorObjects = manifest.contributors.map((contributor) =>
     tx.moveCall({
@@ -203,7 +217,7 @@ const registerDataAsset = async (
     );
   }
 
-  return findCreatedDataAssetId(transaction);
+  return findCreatedDataAssetId(transaction as TxWithEffectsAndTypes, packageId);
 };
 
 const sealKeyServerConfigs = () => [
@@ -215,14 +229,12 @@ const sealKeyServerConfigs = () => [
 ];
 
 const registerAesKeyWithSeal = async (
-  client: any,
+  client: SuiGrpcClient,
   packageIds: PackageIds,
   manifest: UploadManifestRecord,
   dataAssetId: string,
   aesKey: Buffer,
 ): Promise<SealKeyRegistryRecord> => {
-  const { SealClient } = await import("@mysten/seal");
-
   if (aesKey.length !== 32) {
     throw new Error(`AES-256-GCM key must be 32 bytes, got ${aesKey.length}`);
   }
@@ -266,13 +278,12 @@ export const registerUploadedDatasetsOnSuiAndSeal = async (
   dataAssets: DataAssetRegistryRecord[];
   sealedKeys: SealKeyRegistryRecord[];
 }> => {
-  const { SuiGrpcClient } = await import("@mysten/sui/grpc");
   const packageIds = await parsePublishedPackageIds();
   const signer = await loadSigner();
   const client = new SuiGrpcClient({
     network: "testnet",
     baseUrl: config.suiRpcUrl,
-  } as any);
+  });
 
   const dataAssets: DataAssetRegistryRecord[] = [];
   const sealedKeys: SealKeyRegistryRecord[] = [];

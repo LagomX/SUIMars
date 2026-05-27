@@ -13,7 +13,7 @@ import type {
   SimulationResult,
   SimulatedUser,
 } from "./types";
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -180,9 +180,9 @@ const mockEncrypt = (asset: PersonalDataAsset): EncryptedAssetEnvelope => ({
 const manifestPath = (dataType: DataType, assetId: string): string =>
   `mock_walrus/encrypted_assets/${dataType}/${assetId}.json`;
 
-const loadGeneratedUsers = (usersPath = path.resolve(process.cwd(), "users", "all_users.json")): SimulatedUser[] => {
+const loadGeneratedUsers = async (usersPath = path.resolve(process.cwd(), "users", "all_users.json")): Promise<SimulatedUser[]> => {
   try {
-    return JSON.parse(readFileSync(usersPath, "utf8")) as SimulatedUser[];
+    return JSON.parse(await readFile(usersPath, "utf8")) as SimulatedUser[];
   } catch {
     throw new Error(`Missing generated Sui testnet users at ${usersPath}. Run: pnpm simulator:wallets`);
   }
@@ -191,10 +191,10 @@ const loadGeneratedUsers = (usersPath = path.resolve(process.cwd(), "users", "al
 const usersByRole = (users: SimulatedUser[], role: Role): SimulatedUser[] =>
   users.filter((user) => user.role === role);
 
-export const generateSimulation = (seed = 42): SimulationResult => {
+export const generateSimulation = async (seed = 42): Promise<SimulationResult> => {
   const rng = new SeededRandom(seed);
   const grids = createGrids();
-  const users = loadGeneratedUsers();
+  const users = await loadGeneratedUsers();
   const riders = usersByRole(users, "rider");
   const consumers = usersByRole(users, "consumer");
   const merchants: MerchantProfile[] = usersByRole(users, "merchant").map((merchant, index) => ({

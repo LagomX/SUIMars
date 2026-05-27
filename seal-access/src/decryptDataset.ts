@@ -21,6 +21,7 @@ import path from "node:path";
 import { createDecipheriv } from "node:crypto";
 import { config } from "./config.js";
 import { buildDataLicensePolicy, explainPolicy } from "./accessPolicy.js";
+import { fetchWalrusBlob } from "./walrusHttp.js";
 import { requestDecryptKey } from "./sealClient.js";
 import { loadWalrusDatasetInput } from "./walrusOutput.js";
 import {
@@ -106,6 +107,7 @@ export const decryptDatasetWithSealAccess = async (
   const dataAsset = selectDataAsset(await loadDataAssetRegistry(), opts.userId);
   const walrusInput = await loadWalrusDatasetInput(dataAsset.user_id, opts.walrusOutputDir);
   const metadata = walrusInput.metadata;
+  validateMetadata(metadata);  // defence-in-depth: walrusOutput already validates, but we check here too
   const sealedKey = selectSealedKey(await loadSealKeyRegistry(), dataAsset.data_asset_id);
   const license = selectLicense(await loadDataLicenseRegistry(), dataAsset.data_asset_id);
   const buyerSigner = opts.useUnlicensedSimulatorUser
@@ -121,9 +123,10 @@ export const decryptDatasetWithSealAccess = async (
 
   console.log(`\nAccess policy:\n${explainPolicy(policy)}\n`);
 
-  // ── Step 6: prepare output dir ───────────────────────────────────────────
+  // ── Prepare output dir ───────────────────────────────────────────────────
   await mkdir(config.outputDir, { recursive: true });
 
+  // ── Request AES key from Seal ─────────────────────────────────────────────
   let aesKey: Buffer;
   try {
     aesKey = await requestDecryptKey(sealedKey, license, buyerSigner);
@@ -143,7 +146,7 @@ export const decryptDatasetWithSealAccess = async (
     throw error;
   }
 
-  // ── Step 8: validate that we have IV and auth tag ────────────────────────
+  // ── Validate IV and auth tag are present ─────────────────────────────────
   const ivHex = metadata.encryption.iv;
   const authTagHex = metadata.encryption.auth_tag;
 
@@ -167,7 +170,7 @@ export const decryptDatasetWithSealAccess = async (
   const plaintext = decryptAes256Gcm(encryptedBytes, aesKey, ivHex, authTagHex);
   console.log(`Decrypted ${plaintext.length} bytes.`);
 
-  // ── Step 10: parse decrypted JSON ────────────────────────────────────────
+  // ── Parse decrypted JSON ──────────────────────────────────────────────────
   let decryptedJson: unknown;
   try {
     decryptedJson = JSON.parse(plaintext.toString("utf8"));
@@ -178,7 +181,7 @@ export const decryptDatasetWithSealAccess = async (
     );
   }
 
-  // ── Step 11: write output files ──────────────────────────────────────────
+  // ── Write output files ────────────────────────────────────────────────────
   const decryptedOutputPath = path.join(config.outputDir, "decrypted_dataset.json");
 
   // NOTE: In production, decrypted plaintext should never be written to disk.
@@ -231,18 +234,6 @@ const validateMetadata = (meta: DataAssetMetadata): void => {
   }
 };
 
-const fetchWalrusBlob = async (blobId: string): Promise<Buffer> => {
-  const url = `${config.walrusAggregatorUrl.replace(/\/$/, "")}/v1/blobs/${blobId}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Walrus read failed (${response.status} ${response.statusText}) for ${url}`);
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length === 0) {
-    throw new Error(`Walrus returned an empty blob for ${blobId}`);
-  }
-  return bytes;
-};
 
 const writeReceipt = async (receipt: SealAccessReceipt): Promise<void> => {
   const receiptPath = path.join(config.outputDir, "seal_access_receipt.json");

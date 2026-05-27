@@ -31,9 +31,9 @@ export const config = {
 
   /**
    * Deployed Mars Move package ID on Sui testnet.
-   * If unset, seal-access reads contracts/mars/Published.toml.
+   * If unset (undefined or empty), seal-access reads contracts/mars/Published.toml.
    */
-  sealPackageId: process.env.SEAL_PACKAGE_ID ?? "",
+  sealPackageId: process.env.SEAL_PACKAGE_ID ?? undefined,
 
   sealThreshold: Number.parseInt(process.env.SEAL_THRESHOLD ?? "1", 10),
 

@@ -132,8 +132,8 @@ def train_model(
             )
         return model, "lightgbm"
 
-    except Exception:
-        pass
+    except ImportError:
+        pass  # LightGBM not installed — fall through to sklearn
 
     # ── sklearn HistGradientBoosting fallback ─────────────────────────────────
     # Requires scikit-learn >= 1.0 for Poisson loss and categorical_features.
@@ -156,7 +156,7 @@ def train_model(
         model.fit(X_train, y_train)
         return model, "sklearn_hist_gradient_boosting"
 
-    except Exception as err:
+    except ImportError as err:
         raise RuntimeError(
             "Demand model training requires lightgbm or scikit-learn>=1.0. "
             "Install with: pip3 install lightgbm scikit-learn"

@@ -109,8 +109,9 @@ public struct DataAsset has key {
 
 **Invariants:**
 
-- `sum(contributors.weight_bps) == 10 000` — enforced on registration.
-- Only contributors may call `set_for_sale`.
+- `blob_id` and `data_type` must be non-empty — enforced on registration (`EEmptyBlobId` / `EEmptyDataType`).
+- `sum(contributors.weight_bps) == 10 000` — enforced on registration (`EInvalidWeights`).
+- Only contributors may call `set_for_sale` (`ENotContributor`).
 - Only `purchase_access` funds `reward_pool` (package-visibility gate).
 
 ---
@@ -137,6 +138,7 @@ public struct DataLicense has key {
 - `purchase_access(asset, payment, clock, ctx)` — validates listing + exact payment, funds reward pool, mints DataLicense and transfers it to `ctx.sender()`.
 - `verify_license(asset, license, requester) → bool` — checks `data_asset_id` match, `buyer == requester`, perpetual license type.
 - **`seal_approve(id, license, asset, ctx)`** — Seal key server gate.
+- `transfer_for_testing(license, recipient)` *(#[test_only])* — transfers a `DataLicense` to another address for testing; `DataLicense` lacks `store` so `transfer::transfer` is private to this module.
 
 **`seal_approve` detail:**
 
@@ -192,8 +194,9 @@ Created | Paid → Cancelled
 - `create_order(merchant, clock, ctx)` — shares a new `Order`.
 - `pay_order(order, payment, ctx)` — customer locks USDC.
 - `accept_order` / `start_preparing` / `pickup_order` / `mark_delivered` — fulfillment chain.
-- `confirm_completed` — customer confirms or auto-completes after 24-hour window.
-- `raise_dispute` / `resolve_dispute` — dispute resolution within 24-hour window.
+- `confirm_completed` — customer confirms or auto-completes after the 24-hour window.
+- `raise_dispute` — customer raises a dispute; uses strict `<` against `delivered_at + DISPUTE_WINDOW_MS` so the dispute window closes one millisecond before the auto-complete window opens (no race at the exact boundary).
+- `resolve_dispute` — admin resolves a dispute (`ruling=0` → refund; `ruling=1` → complete).
 - `link_data_asset(order, asset_id)` — package-internal; links a DataAsset to an order.
 
 Also defines `AdminCap` used by AI Agent for `set_quality_and_price` and dispute resolution.
@@ -307,6 +310,8 @@ for each raw asset JSON:
 - In **real mode**: AES key is passed to `SealClient.encrypt` and immediately discarded. Only the Seal `EncryptedObject` is persisted.
 - `MOCK_WALRUS=true` uses SHA-256 blob IDs and skips the Walrus CLI.
 
+**Type safety:** `suiSealRegistration.ts` uses no `any` types — all Sui gRPC client calls are typed through a `TxWithEffectsAndTypes` alias (`SuiClientTypes.Transaction<{ effects: true; objectTypes: true }>`). The package ships as ESM (`"type": "module"`) with `moduleResolution: node16` and `.js` extension imports throughout.
+
 **Config env vars (`.env.example`):**
 
 | Variable | Default | Purpose |
@@ -346,7 +351,9 @@ Buyer      → PTB calling seal_approve (proves DataLicense ownership)
 | `src/accessPolicy.ts` | `buildDataLicensePolicy()`, `explainPolicy()` |
 | `src/keyRegistry.ts` | Registry loaders: data_asset_registry, data_license_registry, seal_key_registry |
 | `src/sealClient.ts` | `initializeSealClient`, `registerKeyWithSeal`, `requestDecryptKey` |
+| `src/walrusHttp.ts` | Shared `fetchWalrusBlob(blobId)` — single implementation used by both `batchDecrypt.ts` and `decryptDataset.ts` |
 | `src/decryptDataset.ts` | `decryptAes256Gcm()`, `decryptDatasetWithSealAccess()` |
+| `src/batchDecrypt.ts` | Batch decrypt all licensed DataAssets via Seal; uses `fetchWalrusBlob` from `walrusHttp.ts` |
 | `src/index.ts` | CLI: `--user-id`, `--buyer`, `--data-asset-id`, `--metadata`, `--encrypted` |
 
 **Mock mode (`MOCK_SEAL=true`):**
@@ -450,6 +457,8 @@ dispatch_score =
 
 All scores are clamped to [0, 1]. `demand_balance_score` is per-rider (uses the demand in the rider's current grid, not a global constant).
 
+**`DispatchWeights` invariant:** The frozen dataclass validates in `__post_init__` that `proximity + rider_idle + fairness + demand_balance == 1.0` (tolerance 1e-9). Any misconfigured weight combination raises `ValueError` at construction time.
+
 ---
 
 ## Data Flow Diagram
@@ -531,10 +540,10 @@ pnpm walrus:upload            # encrypt + upload + register
 pnpm seal:decrypt:mock        # mock decrypt demo
 pnpm seal:typecheck           # TypeScript check for seal-access
 
-# Contracts
+# Contracts (21 unit tests)
 cd contracts/mars
 sui move build
-sui move test
+sui move test   # → 21/21 pass
 pnpm --dir contracts register:data-assets
 pnpm --dir contracts prepare:data-license
 

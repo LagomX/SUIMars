@@ -110,6 +110,16 @@ module mars::data_license {
         license.license_type == b"perpetual"
     }
 
+    // ── Test-only helpers ────────────────────────────────────────────────────
+
+    /// Transfer a DataLicense to `recipient` for testing.
+    /// `DataLicense` has `key` but not `store`, so `transfer::transfer` may only
+    /// be called from within this module; tests in other modules use this wrapper.
+    #[test_only]
+    public fun transfer_for_testing(license: DataLicense, recipient: address) {
+        transfer::transfer(license, recipient);
+    }
+
     // ── Seal key-server gate ──────────────────────────────────────────────────
 
     /// Seal access-control function — aborts unless the caller may decrypt this DataAsset.

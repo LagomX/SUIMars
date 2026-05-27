@@ -10,8 +10,14 @@ def assign_best_rider(
     dispatch_dataset_path: Path = Path("aggregator/output/dispatch_dataset.json"),
     weights: DispatchWeights = DispatchWeights(),
 ) -> dict:
+    """Score and rank candidate riders for the first order in the dispatch dataset.
+
+    This is a single-order demo: it processes dispatch_states[0] to show how the
+    scoring formula works end-to-end.  A production dispatcher would iterate over
+    all states and integrate with a live rider-location API.
+    """
     dispatch_states = json.loads(dispatch_dataset_path.read_text())
-    sample = dispatch_states[0]
+    sample = dispatch_states[0]   # demo: evaluate one order only
     ranked = rank_candidates(sample, weights)
     return {
         "timestamp": sample["timestamp"],

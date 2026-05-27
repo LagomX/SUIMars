@@ -212,8 +212,11 @@ module mars::escrow {
         );
         assert!(ctx.sender() == order.customer, ENotCustomer);
         let delivered_at = *order.delivered_at.borrow();
+        // Strict < so the dispute window closes before the auto-complete window opens.
+        // Using <= would allow raise_dispute and confirm_completed to both succeed
+        // at exactly delivered_at + DISPUTE_WINDOW_MS (same block, undefined ordering).
         assert!(
-            clock.timestamp_ms() <= delivered_at + DISPUTE_WINDOW_MS,
+            clock.timestamp_ms() < delivered_at + DISPUTE_WINDOW_MS,
             EDisputeWindowExpired,
         );
         order.state = OrderState::Disputed;
@@ -254,6 +257,15 @@ module mars::escrow {
     /// Drains the full escrow balance so settlement.move can distribute it.
     public(package) fun take_amount(order: &mut Order): Balance<USDC> {
         balance::withdraw_all(&mut order.amount)
+    }
+
+    // ── Test-only helpers ────────────────────────────────────────────────────
+
+    /// Invoke the module initialiser in a test scenario so the deployer address
+    /// receives an AdminCap just as a real package publication would.
+    #[test_only]
+    public fun init_for_testing(ctx: &mut TxContext) {
+        init(ctx);
     }
 
     // ── Read-only accessors ───────────────────────────────────────────────────

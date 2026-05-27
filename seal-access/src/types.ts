@@ -59,23 +59,22 @@ export interface SealAccessPolicy {
    * Fully-qualified Move function that Seal key servers call to verify access.
    * Format: "{package_id}::{module}::{function}"
    *
-   * TODO: Implement `seal_approve` in contracts/mars/sources/data_license.move,
-   *       then set this field to "{DEPLOYED_PACKAGE_ID}::data_license::seal_approve".
+   * Set to "{DEPLOYED_PACKAGE_ID}::data_license::seal_approve".
    *
-   * Required Move function signature:
-   *   entry fun seal_approve(
-   *       id: vector<u8>,         // Seal session/identity bytes
-   *       license: &DataLicense,  // buyer-owned object
-   *       asset: &DataAsset,      // shared object
+   * Move function signature (implemented in contracts/mars/sources/data_license.move):
+   *   public fun seal_approve(
+   *       id: vector<u8>,         // BCS bytes of the DataAsset object ID
+   *       license: &DataLicense,  // buyer-owned DataLicense object
+   *       asset:   &DataAsset,    // shared DataAsset object
+   *       ctx:     &TxContext,
    *   )
-   *   — aborts if license.data_asset_id != object::id(asset) || tx.sender() != license.buyer
+   *   — aborts EUnauthorized if id ≠ bcs(object::id(asset)) or buyer ≠ ctx.sender()
    */
   move_call: string | null;
   /**
-   * Seal IBE identity under which the AES key is Seal-encrypted.
-   * Typically: sha256(packageId || "::" || dataAssetId) or the object ID bytes directly.
-   *
-   * TODO: Derive and store this after calling SealClient.encrypt(aesKeyBytes, ...).
+   * Seal IBE identity under which the AES key is encrypted.
+   * Set to the DataAsset's on-chain Sui object ID (hex string, starts with 0x).
+   * Matches bcs::to_bytes(&object::id(asset)) used inside seal_approve.
    */
   seal_id: string | null;
 }

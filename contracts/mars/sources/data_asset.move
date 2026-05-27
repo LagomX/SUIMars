@@ -20,6 +20,8 @@ module mars::data_asset {
     const ENotContributor: u64      = 3;
     const EEmptyRewardPool: u64     = 4;
     const EInvalidQualityScore: u64 = 5; // score must be 0–100
+    const EEmptyBlobId: u64         = 6; // blob_id must be non-empty
+    const EEmptyDataType: u64       = 7; // data_type must be non-empty
 
     // ── Structs ──────────────────────────────────────────────────────────────
 
@@ -69,6 +71,8 @@ module mars::data_asset {
         clock: &Clock,
         ctx: &mut TxContext,
     ) {
+        assert!(vector::length(&blob_id) > 0, EEmptyBlobId);
+        assert!(vector::length(&data_type) > 0, EEmptyDataType);
         assert!(vector::length(&contributors) > 0, ENoContributors);
         assert!(sum_weights(&contributors) == 10_000, EInvalidWeights);
 

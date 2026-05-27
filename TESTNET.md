@@ -41,6 +41,7 @@ sui client balance
 ```bash
 cd contracts/mars
 sui move build
+sui move test          # verify all 21 tests pass before deploying
 sui client publish --json > ../../publish-testnet.json
 ```
 
@@ -48,7 +49,7 @@ Extract the IDs needed by the TypeScript runner:
 
 ```bash
 cd ../../walrus-uploader
-npm run chain:extract-publish -- ../publish-testnet.json
+pnpm chain:extract-publish -- ../publish-testnet.json
 ```
 
 Copy the printed values into `walrus-uploader/.env`.
@@ -101,25 +102,23 @@ WALRUS_MOCK=true
 
 ## 4. Generate Data and Register Assets
 
-Generate the simulator output:
+Generate the simulator output from the repo root:
 
 ```bash
-cd ../simulator
-npm run generate
+pnpm simulator:wallets     # 100 riders + 40 merchants + 500 consumers
+pnpm simulator:generate    # 640 DataAssets + 16 043 orders
 ```
 
 Register DataAssets with real Sui and mock Walrus:
 
 ```bash
-cd ../walrus-uploader
-npm run upload:sui-testnet
+MOCK_WALRUS=true pnpm walrus:upload
 ```
 
 Register DataAssets with real Sui and real Walrus:
 
 ```bash
-cd ../walrus-uploader
-npm run upload:testnet
+pnpm walrus:upload
 ```
 
 Outputs:
@@ -138,7 +137,7 @@ The shortest one-wallet smoke path:
 
 ```bash
 cd walrus-uploader
-CHAIN_MAX_ASSETS=1 npm run chain:run-sample
+CHAIN_MAX_ASSETS=1 pnpm chain:run-sample
 ```
 
 That command runs:
@@ -150,19 +149,19 @@ mint-usdc -> price-assets -> list-assets -> purchase-sample -> distribute-reward
 You can run the stages separately:
 
 ```bash
-npm run chain:mint-usdc
-npm run chain:price-assets
-npm run chain:list-assets
-npm run chain:purchase-sample
-npm run chain:distribute-rewards
+pnpm chain:mint-usdc
+pnpm chain:price-assets
+pnpm chain:list-assets
+pnpm chain:purchase-sample
+pnpm chain:distribute-rewards
 ```
 
 Useful targeting variables:
 
 ```bash
-ASSET_ID=package_01_rider_mobility npm run chain:prepare-assets
-CHAIN_MAX_ASSETS=3 npm run chain:purchase-sample
-USDC_MINT_AMOUNT=100 npm run chain:mint-usdc
+ASSET_ID=package_01_rider_mobility pnpm chain:prepare-assets
+CHAIN_MAX_ASSETS=3 pnpm chain:purchase-sample
+USDC_MINT_AMOUNT=100 pnpm chain:mint-usdc
 ```
 
 Chain runner outputs are written to:
@@ -177,7 +176,9 @@ walrus-uploader/output/testnet/
 - Walrus blobs are public and discoverable. Keep encrypting payloads before upload.
 - `keys.json` is mock-local key material for development only.
 - The current app still reads local JSON outputs; production UI needs Sui/Walrus/Seal indexing.
-- If contributor addresses differ, `list-assets` must be run by each contributor wallet because `set_for_sale` checks `ctx.sender()`.
+- If contributor addresses differ, `list-assets` must be run by each contributor wallet because `set_for_sale` checks `ctx.sender()` against `contributors[]`.
+- `register_data_asset` rejects an empty `blob_id` or `data_type` on-chain — ensure the Walrus upload succeeds before calling this.
+- `raise_dispute` is only valid while `clock.timestamp_ms() < delivered_at + 86_400_000`. After exactly 24 hours, only `confirm_completed` succeeds.
 
 ## Reference Docs
 

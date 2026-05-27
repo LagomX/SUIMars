@@ -35,6 +35,15 @@ class DispatchWeights:
     demand_balance: float = 0.25
     # Verification: 0.40 + 0.18 + 0.17 + 0.25 = 1.00
 
+    def __post_init__(self) -> None:
+        total = self.proximity + self.rider_idle + self.fairness + self.demand_balance
+        if abs(total - 1.0) > 1e-9:
+            raise ValueError(
+                f"DispatchWeights must sum to 1.0, got {total:.10f}. "
+                f"(proximity={self.proximity}, rider_idle={self.rider_idle}, "
+                f"fairness={self.fairness}, demand_balance={self.demand_balance})"
+            )
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

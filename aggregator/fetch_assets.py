@@ -1,43 +1,76 @@
+"""
+Fetch and decrypt all licensed DataAssets from Walrus via Seal.
+
+This module drives the TypeScript batch-decrypt script, which:
+  1. Requests the AES-256-GCM key for each licensed DataAsset from Seal key servers.
+  2. Fetches the encrypted blob from Walrus testnet.
+  3. Decrypts locally (AES-256-GCM).
+  4. Expands PersonalDataset.assets[] into individual JSON files under
+       aggregator/output/buyer_workspace/decrypted_assets/<data_type>/<asset_id>.json
+
+Prerequisites (run once before this script):
+  pnpm simulator:wallets
+  pnpm simulator:generate
+  pnpm walrus:upload
+  pnpm --dir contracts register:data-assets
+  pnpm --dir contracts prepare:data-license
+
+Requires:
+  - contracts/output/data_asset_registry.json
+  - contracts/output/data_license_registry.json
+  - seal-access/output/seal_key_registry.json
+  - walrus-uploader/output/upload_manifest.json
+  - BUYER_PRIVATE_KEY env var or active Sui CLI wallet with the licensed DataLicense
+"""
+
 from __future__ import annotations
 
 import json
-import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 
-def load_manifest(simulator_output: Path) -> list[dict[str, Any]]:
-    manifest_path = simulator_output / "license_manifest.json"
-    if not manifest_path.exists():
-        raise FileNotFoundError(f"Missing license manifest: {manifest_path}")
-    return json.loads(manifest_path.read_text())
-
-
 def fetch_licensed_assets(
-    simulator_output: Path = Path("simulator/output"),
     buyer_dir: Path = Path("aggregator/output/buyer_workspace"),
 ) -> list[dict[str, Any]]:
-    """Copy mock Walrus blobs into a buyer workspace after license approval."""
-    manifest = load_manifest(simulator_output)
-    licensed_dir = buyer_dir / "licensed_assets"
-    if licensed_dir.exists():
-        shutil.rmtree(licensed_dir)
-    licensed_dir.mkdir(parents=True, exist_ok=True)
+    """
+    Run pnpm aggregator:decrypt to decrypt all licensed DataAssets via Seal.
 
-    fetched: list[dict[str, Any]] = []
-    for entry in manifest:
-        source = simulator_output / entry["path"]
-        if not source.exists():
-            raise FileNotFoundError(f"Manifest points to missing blob: {source}")
-        target = licensed_dir / entry["data_type"] / source.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, target)
-        fetched.append({**entry, "local_path": str(target)})
+    Writes individual asset files under buyer_dir/decrypted_assets/ and a
+    summary manifest at buyer_dir/decryption_manifest.json.
 
-    (buyer_dir / "licensed_manifest.json").write_text(json.dumps(fetched, indent=2) + "\n")
-    return fetched
+    Returns the list of manifest entries (one per successfully decrypted DataAsset).
+
+    Raises RuntimeError if the TypeScript script exits with a non-zero status.
+    """
+    print("Decrypting licensed DataAssets via Seal + Walrus...")
+
+    result = subprocess.run(
+        ["pnpm", "aggregator:decrypt"],
+        capture_output=False,   # stream stdout/stderr directly so progress is visible
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"pnpm aggregator:decrypt exited with code {result.returncode}. "
+            "Check the output above for details."
+        )
+
+    manifest_path = buyer_dir / "decryption_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Decryption manifest not found: {manifest_path}\n"
+            "The TypeScript batch-decrypt script should have created it."
+        )
+
+    manifest: list[dict[str, Any]] = json.loads(manifest_path.read_text())
+    return manifest
 
 
 if __name__ == "__main__":
-    assets = fetch_licensed_assets()
-    print(f"Fetched {len(assets)} licensed encrypted DataAssets")
+    entries = fetch_licensed_assets()
+    total_assets = sum(e.get("asset_count", 0) for e in entries)
+    print(f"Decrypted {len(entries)} DataAsset blob(s) → {total_assets} individual asset file(s)")

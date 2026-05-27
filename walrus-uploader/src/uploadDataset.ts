@@ -1,13 +1,13 @@
 import { constants } from "node:fs";
 import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { config } from "./config";
-import { ENCRYPTION_ALGORITHM, encryptBytes } from "./encrypt";
+import { config } from "./config.js";
+import { ENCRYPTION_ALGORITHM, encryptBytes } from "./encrypt.js";
 import {
   registerUploadedDatasetsOnSuiAndSeal,
   type RegisterUploadedDatasetInput,
-} from "./suiSealRegistration";
-import { uploadEncryptedBlob } from "./walrusClient";
+} from "./suiSealRegistration.js";
+import { uploadEncryptedBlob } from "./walrusClient.js";
 
 type Role = "rider" | "merchant" | "consumer";
 

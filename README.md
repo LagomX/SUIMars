@@ -208,18 +208,22 @@ See [`TESTNET.md`](./TESTNET.md) for the full runbook:
 ```bash
 cd contracts/mars
 sui move build
-sui move test
+sui move test   # 21/21 tests pass
 ```
 
 The `seal_approve` entry point in `data_license.move` is the on-chain gate Seal key servers call before releasing the AES decryption key. It verifies:
-1. The Seal IBE identity matches this specific DataAsset.
-2. The caller owns a valid `DataLicense` for this asset.
+1. The Seal IBE identity matches this specific DataAsset (`bcs::to_bytes(object::id(asset)) == id`).
+2. The caller holds a valid `DataLicense` for this asset (`license.data_asset_id` match + `license.buyer == ctx.sender()` + perpetual type).
+
+Test coverage includes `seal_approve` happy path, wrong-asset-id abort, and non-buyer-caller abort (21 tests total across `data_asset`, `data_license`, `escrow`, and `settlement`).
 
 ## Security Notes
 
 - Personal raw data is role-owned; aggregation happens only after licensed access.
 - Ciphertext only is uploaded to Walrus; the raw AES key never leaves the user's environment in production.
 - In real Seal mode, the AES key is recovered via Seal's threshold key servers — not from any local file.
+- `register_data_asset` rejects empty `blob_id` or `data_type` — no DataAsset can be created without a valid Walrus blob reference.
+- `raise_dispute` uses a strict `<` boundary against `delivered_at + 24h`, so the dispute window and the 24-hour auto-complete window can never fire in the same block.
 - `seal-access/input/encryption_key.demo.json` is a **demo-only** artifact clearly marked unsafe.
 - The `simulator/users/` directory (containing private keys) is gitignored.
 

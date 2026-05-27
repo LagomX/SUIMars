@@ -4,12 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-
-def load_decrypted_assets(buyer_dir: Path = Path("aggregator/output/buyer_workspace")) -> list[dict[str, Any]]:
-    assets: list[dict[str, Any]] = []
-    for asset_path in sorted((buyer_dir / "decrypted_assets").glob("*/*.json")):
-        assets.append(json.loads(asset_path.read_text()))
-    return assets
+from decrypt_assets import load_decrypted_assets  # validated loader — avoids duplication
 
 
 def merge_events_by_order(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:

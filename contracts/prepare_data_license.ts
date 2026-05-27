@@ -1,11 +1,10 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import dotenv from "dotenv";
 import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
-import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { Transaction } from "@mysten/sui/transactions";
+import { loadSigner, parsePublishedPackageId, signerFromPrivateKey } from "./suiUtils";
 
 dotenv.config({ path: path.join(__dirname, ".env") });
 
@@ -31,12 +30,11 @@ type LicenseRegistryRecord = {
   data_type: string;
 };
 
-const projectRoot = path.resolve(__dirname, "..");
 const contractsRoot = __dirname;
+const projectRoot = path.resolve(contractsRoot, "..");
 
 const config = {
   network: process.env.SUI_NETWORK ?? "testnet",
-  packageId: process.env.PACKAGE_ID,
   adminCapId: process.env.ADMIN_CAP_ID,
   usdcTreasuryCapId: process.env.USDC_TREASURY_CAP_ID,
   priceRaw: BigInt(process.env.DATA_LICENSE_PRICE_RAW ?? "1000000"),
@@ -48,70 +46,6 @@ const config = {
 
 const readJson = async <T>(filePath: string): Promise<T> =>
   JSON.parse(await readFile(filePath, "utf8")) as T;
-
-const parsePublishedPackageId = async (): Promise<string> => {
-  if (config.packageId?.startsWith("0x")) {
-    return config.packageId;
-  }
-
-  const publishedToml = await readFile(path.join(contractsRoot, "mars", "Published.toml"), "utf8");
-  const packageMatch = publishedToml
-    .match(/\[published\.testnet\]([\s\S]*?)(?:\n\[|$)/)?.[1]
-    ?.match(/published-at\s*=\s*"([^"]+)"/);
-  const packageId = packageMatch?.[1];
-  if (!packageId?.startsWith("0x")) {
-    throw new Error("PACKAGE_ID is not set and Published.toml has no testnet package id");
-  }
-  return packageId;
-};
-
-const activeSuiConfig = async (): Promise<{ activeAddress: string; keystorePath: string }> => {
-  const clientYamlPath = path.join(os.homedir(), ".sui", "sui_config", "client.yaml");
-  const yaml = await readFile(clientYamlPath, "utf8");
-  const activeAddress = yaml.match(/active_address:\s*"?([^"\n]+)"?/)?.[1]?.trim();
-  const keystorePath =
-    yaml.match(/keystore:\s*\n\s*File:\s*([^\n]+)/)?.[1]?.trim() ??
-    path.join(os.homedir(), ".sui", "sui_config", "sui.keystore");
-
-  if (!activeAddress?.startsWith("0x")) {
-    throw new Error(`Could not find active_address in ${clientYamlPath}`);
-  }
-
-  return {
-    activeAddress: activeAddress.toLowerCase(),
-    keystorePath: keystorePath.replace(/^~/, os.homedir()),
-  };
-};
-
-const signerFromPrivateKey = (privateKey: string): Ed25519Keypair => {
-  const decoded = decodeSuiPrivateKey(privateKey);
-  if (decoded.schema !== "ED25519") {
-    throw new Error(`Only ED25519 private keys are supported by this script, got ${decoded.schema}`);
-  }
-  return Ed25519Keypair.fromSecretKey(decoded.secretKey);
-};
-
-const signerFromSuiKeystore = async (): Promise<Ed25519Keypair> => {
-  const { activeAddress, keystorePath } = await activeSuiConfig();
-  const keys = await readJson<string[]>(keystorePath);
-
-  for (const encoded of keys) {
-    const bytes = Buffer.from(encoded, "base64");
-    if (bytes[0] !== 0) {
-      continue;
-    }
-
-    const keypair = Ed25519Keypair.fromSecretKey(bytes.slice(1));
-    if (keypair.getPublicKey().toSuiAddress().toLowerCase() === activeAddress) {
-      return keypair;
-    }
-  }
-
-  throw new Error(`Could not find active ED25519 Sui address in ${keystorePath}`);
-};
-
-const buyerSigner = async (): Promise<Ed25519Keypair> =>
-  config.buyerPrivateKey ? signerFromPrivateKey(config.buyerPrivateKey) : signerFromSuiKeystore();
 
 const requireObjectId = (value: string | undefined, label: string): string => {
   if (!value?.startsWith("0x")) {
@@ -144,7 +78,7 @@ const execute = async (
   client: SuiClient,
   signer: Ed25519Keypair,
   transaction: Transaction,
-): Promise<any> => {
+): Promise<{ objectChanges?: unknown[] | null }> => {
   const result = await client.signAndExecuteTransaction({
     signer,
     transaction,
@@ -179,9 +113,11 @@ const ensureGas = async (
 };
 
 const main = async (): Promise<void> => {
-  const packageId = await parsePublishedPackageId();
+  const packageId = await parsePublishedPackageId(contractsRoot);
   const adminCapId = requireObjectId(config.adminCapId, "ADMIN_CAP_ID");
   const treasuryCapId = requireObjectId(config.usdcTreasuryCapId, "USDC_TREASURY_CAP_ID");
+
+  // Only processes the first DataAsset — sufficient for MVP demo where one asset is uploaded.
   const [assetRecord] = await readJson<DataAssetRegistryRecord[]>(config.registryPath);
   if (!assetRecord) {
     throw new Error(`No DataAsset registry records found in ${config.registryPath}`);
@@ -194,7 +130,7 @@ const main = async (): Promise<void> => {
   }
 
   const client = new SuiClient({ url: getFullnodeUrl(config.network as "testnet") });
-  const adminBuyer = await buyerSigner();
+  const adminBuyer = await loadSigner(config.buyerPrivateKey);
   const ownerSigner = signerFromPrivateKey(ownerUser.private_key);
   const buyerAddress = adminBuyer.getPublicKey().toSuiAddress();
 
