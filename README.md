@@ -155,19 +155,29 @@ python3 ai-agent/demand_prediction/predict_demand.py
 python3 ai-agent/dispatch_optimization/assign_rider.py
 ```
 
-### 5. Mock Seal Decrypt Demo
+### 5. Seal-Gated Decrypt
+
+**Local demo (no Sui deployment needed):**
 
 ```bash
 pnpm seal:decrypt:mock
 ```
 
-Simulates a buyer decrypting a DataAsset after DataLicense ownership verification.
+Simulates DataLicense ownership check with a local demo AES key. Useful for testing the full pipeline without a live Sui deployment.
 
 To test the access-denied path:
 
 ```bash
 MOCK_BUYER_HAS_LICENSE=false pnpm seal:decrypt:mock
 ```
+
+**Real Seal mode (after testnet deployment):**
+
+```bash
+MOCK_SEAL=false pnpm seal:decrypt
+```
+
+Builds a PTB calling `data_license::seal_approve` on-chain, submits to Seal key servers, and decrypts the Walrus blob locally with the recovered AES key. Requires a deployed Mars package and a purchased `DataLicense` — see the [Testnet Deployment](#testnet-deployment) section below.
 
 ## Testnet Deployment
 
