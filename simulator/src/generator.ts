@@ -1,20 +1,25 @@
-import { v5 as uuidv5 } from "uuid";
-import type { DataPackage, GpsPoint, OrderEvent, OrderItem } from "./types";
+import type {
+  ConsumerEvent,
+  DataType,
+  EncryptedAssetEnvelope,
+  Grid,
+  LicenseManifestEntry,
+  Location,
+  MerchantEvent,
+  PersonalDataAsset,
+  RiderEvent,
+  Role,
+  SimulationResult,
+} from "./types";
 
-const UUID_NAMESPACE = "7f4f87f8-675d-4a17-82f2-2c20a64a85bf";
-const EARTH_RADIUS_KM = 6371;
-const MS_PER_MINUTE = 60_000;
-const GPS_INTERVAL_SECONDS = 30;
-
-const MERCHANTS = [
-  { id: "merchant_01", location: { lat: 34.0522, lng: -118.2437 } }, // Downtown LA
-  { id: "merchant_02", location: { lat: 34.0195, lng: -118.4912 } }, // Santa Monica
-  { id: "merchant_03", location: { lat: 34.0674, lng: -118.3990 } }, // West Hollywood
-] as const;
-
-const RIDERS = ["rider_01", "rider_02", "rider_03"] as const;
-const CUSTOMERS = ["customer_01", "customer_02", "customer_03", "customer_04", "customer_05"] as const;
-const ITEM_NAMES = ["Burger", "Pizza", "Sushi", "Tacos", "Pasta", "Salad", "Ramen", "Sandwich"] as const;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const WINDOW_MINUTES = 15;
+const SIMULATION_DAYS = 7;
+const START_TIME = Date.UTC(2026, 4, 26, 0, 0, 0);
+const GRID_ROWS = ["A", "B", "C", "D"] as const;
+const GRID_COLS = [1, 2, 3, 4] as const;
+const MERCHANT_CATEGORIES = ["fast_food", "coffee", "grocery", "sushi", "pizza", "dessert"] as const;
 
 class SeededRandom {
   private state: number;
@@ -46,219 +51,257 @@ const round = (value: number, decimals: number): number => {
   return Math.round(value * factor) / factor;
 };
 
-const toRadians = (degrees: number): number => (degrees * Math.PI) / 180;
-const toDegrees = (radians: number): number => (radians * 180) / Math.PI;
+const iso = (timestampMs: number): string => new Date(timestampMs).toISOString().replace(".000Z", "Z");
 
-const assertValidPoint = (point: GpsPoint): void => {
-  if (
-    !Number.isFinite(point.lat) ||
-    !Number.isFinite(point.lng) ||
-    point.lat < -90 ||
-    point.lat > 90 ||
-    point.lng < -180 ||
-    point.lng > 180
-  ) {
-    throw new Error(`Invalid GPS point: ${JSON.stringify(point)}`);
-  }
-};
+const createGrids = (): Grid[] => {
+  const origin = { lat: 34.001, lng: -118.505 };
+  const latStep = 0.0125;
+  const lngStep = 0.0155;
+  const grids: Grid[] = [];
 
-export const distanceKm = (a: Pick<GpsPoint, "lat" | "lng">, b: Pick<GpsPoint, "lat" | "lng">): number => {
-  const dLat = toRadians(b.lat - a.lat);
-  const dLng = toRadians(b.lng - a.lng);
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_RADIUS_KM * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-};
-
-const destinationPoint = (
-  origin: Pick<GpsPoint, "lat" | "lng">,
-  distance: number,
-  bearing: number,
-): Pick<GpsPoint, "lat" | "lng"> => {
-  const angularDistance = distance / EARTH_RADIUS_KM;
-  const bearingRad = toRadians(bearing);
-  const lat1 = toRadians(origin.lat);
-  const lng1 = toRadians(origin.lng);
-
-  const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(angularDistance) +
-      Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearingRad),
-  );
-  const lng2 =
-    lng1 +
-    Math.atan2(
-      Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(lat1),
-      Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2),
-    );
-
-  return {
-    lat: round(toDegrees(lat2), 6),
-    lng: round(((toDegrees(lng2) + 540) % 360) - 180, 6),
-  };
-};
-
-const createGpsPoint = (point: Pick<GpsPoint, "lat" | "lng">, timestamp: number): GpsPoint => {
-  const gpsPoint = {
-    lat: round(point.lat, 6),
-    lng: round(point.lng, 6),
-    timestamp,
-  };
-  assertValidPoint(gpsPoint);
-  return gpsPoint;
-};
-
-const generateDeliveryLocation = (
-  merchantLocation: Pick<GpsPoint, "lat" | "lng">,
-  rng: SeededRandom,
-): Pick<GpsPoint, "lat" | "lng"> => {
-  const radiusKm = rng.float(3, 5);
-  const bearing = rng.float(0, 360);
-  return destinationPoint(merchantLocation, radiusKm, bearing);
-};
-
-const generateGpsTrack = (
-  merchantLocation: Pick<GpsPoint, "lat" | "lng">,
-  deliveryLocation: Pick<GpsPoint, "lat" | "lng">,
-  pickedUpAt: number,
-  deliveryTimeSeconds: number,
-  rng: SeededRandom,
-): GpsPoint[] => {
-  const pointCount = Math.max(2, deliveryTimeSeconds / GPS_INTERVAL_SECONDS);
-  const points: GpsPoint[] = [];
-
-  for (let i = 0; i < pointCount; i += 1) {
-    const progress = pointCount === 1 ? 1 : i / (pointCount - 1);
-    const isEndpoint = i === 0 || i === pointCount - 1;
-    const latNoise = isEndpoint ? 0 : rng.float(-0.001, 0.001);
-    const lngNoise = isEndpoint ? 0 : rng.float(-0.001, 0.001);
-
-    points.push(
-      createGpsPoint(
-        {
-          lat: merchantLocation.lat + (deliveryLocation.lat - merchantLocation.lat) * progress + latNoise,
-          lng: merchantLocation.lng + (deliveryLocation.lng - merchantLocation.lng) * progress + lngNoise,
+  GRID_ROWS.forEach((row, rowIndex) => {
+    GRID_COLS.forEach((col, colIndex) => {
+      grids.push({
+        grid_id: `SM_${row}${col}`,
+        row: rowIndex,
+        col: colIndex,
+        center: {
+          lat: round(origin.lat + rowIndex * latStep, 6),
+          lng: round(origin.lng + colIndex * lngStep, 6),
         },
-        pickedUpAt + i * GPS_INTERVAL_SECONDS * 1000,
-      ),
-    );
-  }
-
-  return points;
-};
-
-const generateItems = (rng: SeededRandom): OrderItem[] => {
-  const count = rng.int(1, 3);
-  const available = [...ITEM_NAMES];
-  const items: OrderItem[] = [];
-
-  for (let i = 0; i < count; i += 1) {
-    const itemIndex = rng.int(0, available.length - 1);
-    const [name] = available.splice(itemIndex, 1);
-    items.push({
-      name,
-      price_usdc: round(rng.float(5, 15), 2),
-      quantity: rng.int(1, 2),
+      });
     });
+  });
+
+  return grids;
+};
+
+const jitterLocation = (center: Location, rng: SeededRandom): Location => ({
+  lat: round(center.lat + rng.float(-0.0045, 0.0045), 6),
+  lng: round(center.lng + rng.float(-0.0045, 0.0045), 6),
+});
+
+const demandIntensity = (grid: Grid, timestampMs: number): number => {
+  const date = new Date(timestampMs);
+  const hour = date.getUTCHours();
+  const day = date.getUTCDay();
+  const mealPeak =
+    Math.exp(-((hour - 12) ** 2) / 10) * 1.3 + Math.exp(-((hour - 19) ** 2) / 8) * 1.8;
+  const weekendBoost = day === 0 || day === 6 ? 0.3 : 0;
+  const beachBoost = grid.col <= 1 ? 0.25 : 0;
+  const downtownBoost = grid.row >= 2 && grid.col >= 2 ? 0.35 : 0;
+  return 0.25 + mealPeak + weekendBoost + beachBoost + downtownBoost;
+};
+
+const sampleOrderCount = (rng: SeededRandom, intensity: number): number => {
+  const baseline = Math.floor(intensity);
+  const fractional = intensity - baseline;
+  const surge = rng.next() < 0.04 ? rng.int(2, 5) : 0;
+  return Math.max(0, baseline + (rng.next() < fractional ? 1 : 0) + (rng.next() < 0.12 ? 1 : 0) + surge);
+};
+
+const neighborGrid = (grid: Grid, grids: Grid[], rng: SeededRandom): Grid => {
+  const candidates = grids.filter(
+    (candidate) =>
+      Math.abs(candidate.row - grid.row) <= 1 &&
+      Math.abs(candidate.col - grid.col) <= 1 &&
+      candidate.grid_id !== grid.grid_id,
+  );
+  return rng.pick(candidates.length > 0 ? candidates : grids);
+};
+
+const pushAssetEvent = <TEvent extends RiderEvent | MerchantEvent | ConsumerEvent>(
+  assetMap: Map<string, PersonalDataAsset<TEvent>>,
+  asset: Omit<PersonalDataAsset<TEvent>, "events">,
+  event: TEvent,
+): void => {
+  const existing = assetMap.get(asset.asset_id);
+  if (existing) {
+    existing.events.push(event);
+    return;
   }
 
-  return items;
+  assetMap.set(asset.asset_id, { ...asset, events: [event] });
 };
 
-const createOrderAmount = (items: OrderItem[], rng: SeededRandom): number => {
-  const itemTotal = items.reduce((sum, item) => sum + item.price_usdc * item.quantity, 0);
-  return round(Math.min(25, Math.max(8, itemTotal + rng.float(0.75, 2.5))), 2);
-};
+const mockEncrypt = (asset: PersonalDataAsset): EncryptedAssetEnvelope => ({
+  asset_id: asset.asset_id,
+  owner_id: asset.owner_id,
+  role: asset.role,
+  data_type: asset.data_type,
+  blob_id: `blob_${asset.asset_id}`,
+  key_id: `mock_key_${asset.asset_id}`,
+  ciphertext_base64: Buffer.from(JSON.stringify(asset), "utf8").toString("base64"),
+  encryption: "mock-base64",
+  created_at: asset.created_at,
+});
 
-export const generateOrders = (count = 100, seed = 42): OrderEvent[] => {
+const manifestPath = (dataType: DataType, assetId: string): string =>
+  `mock_walrus/encrypted_assets/${dataType}/${assetId}.json`;
+
+export const generateSimulation = (seed = 42): SimulationResult => {
   const rng = new SeededRandom(seed);
-  const orders: OrderEvent[] = [];
-  const baseTimestamp = Date.UTC(2026, 4, 21, 8, 0, 0);
+  const grids = createGrids();
+  const riders = Array.from({ length: 32 }, (_, index) => `r_${String(index + 1).padStart(3, "0")}`);
+  const merchants = Array.from({ length: 48 }, (_, index) => ({
+    id: `m_${String(index + 1).padStart(3, "0")}`,
+    grid: grids[index % grids.length],
+    category: MERCHANT_CATEGORIES[index % MERCHANT_CATEGORIES.length],
+  }));
+  const consumers = Array.from({ length: 180 }, (_, index) => `c_${String(index + 1).padStart(3, "0")}`);
 
-  for (let i = 0; i < count; i += 1) {
-    const packageIndex = Math.floor(i / 10);
-    const merchant = MERCHANTS[packageIndex % MERCHANTS.length];
-    const riderId = RIDERS[packageIndex % RIDERS.length];
-    const customerId = CUSTOMERS[i % CUSTOMERS.length];
-    const deliveryLocation = generateDeliveryLocation(merchant.location, rng);
-    const distance = distanceKm(merchant.location, deliveryLocation);
-    const rawDeliverySeconds = rng.int(600, 1200) + distance * 180 + rng.int(-120, 120);
-    const deliveryTimeSeconds = Math.max(600, Math.round(rawDeliverySeconds / GPS_INTERVAL_SECONDS) * GPS_INTERVAL_SECONDS);
-    const orderCreatedAt = baseTimestamp + i * 17 * MS_PER_MINUTE + rng.int(0, 6) * MS_PER_MINUTE;
-    const pickedUpAt = orderCreatedAt + rng.int(8, 18) * MS_PER_MINUTE;
-    const deliveredAt = pickedUpAt + deliveryTimeSeconds * 1000;
-    const items = generateItems(rng);
+  const riderAssets = new Map<string, PersonalDataAsset<RiderEvent>>();
+  const merchantAssets = new Map<string, PersonalDataAsset<MerchantEvent>>();
+  const consumerAssets = new Map<string, PersonalDataAsset<ConsumerEvent>>();
 
-    const merchantLocation = createGpsPoint(merchant.location, orderCreatedAt);
-    const deliveryGpsPoint = createGpsPoint(deliveryLocation, deliveredAt);
-    const gpsTrack = generateGpsTrack(merchant.location, deliveryLocation, pickedUpAt, deliveryTimeSeconds, rng);
+  let orderNumber = 1;
+  const windowCount = SIMULATION_DAYS * 24 * (60 / WINDOW_MINUTES);
 
-    orders.push({
-      order_id: `order_${String(i + 1).padStart(3, "0")}_${uuidv5(`order-${i + 1}`, UUID_NAMESPACE)}`,
-      customer_id: customerId,
-      merchant_id: merchant.id,
-      rider_id: riderId,
-      merchant_location: merchantLocation,
-      delivery_location: deliveryGpsPoint,
-      gps_track: gpsTrack,
-      order_created_at: orderCreatedAt,
-      picked_up_at: pickedUpAt,
-      delivered_at: deliveredAt,
-      delivery_time_seconds: deliveryTimeSeconds,
-      distance_km: round(distance, 3),
-      order_amount_usdc: createOrderAmount(items, rng),
-      items,
-      confirmations: {
-        customer_confirmed: true,
-        merchant_confirmed: true,
-        rider_confirmed: true,
-      },
-    });
+  for (let windowIndex = 0; windowIndex < windowCount; windowIndex += 1) {
+    const windowStart = START_TIME + windowIndex * WINDOW_MINUTES * MINUTE_MS;
+
+    for (const grid of grids) {
+      const orderCount = sampleOrderCount(rng, demandIntensity(grid, windowStart));
+
+      for (let i = 0; i < orderCount; i += 1) {
+        const createdAt = windowStart + rng.int(0, WINDOW_MINUTES - 1) * MINUTE_MS;
+        const merchant = rng.pick(merchants.filter((candidate) => candidate.grid.grid_id === grid.grid_id));
+        const riderId = rng.pick(riders);
+        const consumerId = rng.pick(consumers);
+        const dropoffGrid = neighborGrid(grid, grids, rng);
+        const pickupLocation = jitterLocation(grid.center, rng);
+        const acceptDelayMin = round(rng.float(0.5, 4.8), 1);
+        const prepTimeMin = round(rng.float(5, 18), 1);
+        const deliveryDurationMin = round(rng.float(12, 35) + demandIntensity(grid, createdAt), 1);
+        const acceptedAt = createdAt + acceptDelayMin * MINUTE_MS;
+        const readyAt = createdAt + prepTimeMin * MINUTE_MS;
+        const pickedUpAt = Math.max(acceptedAt + rng.float(1, 4) * MINUTE_MS, readyAt);
+        const deliveredAt = pickedUpAt + deliveryDurationMin * MINUTE_MS;
+        const currentOrders = rng.next() < 0.22 ? 1 : 0;
+        const idleTimeMin = currentOrders > 0 ? rng.int(0, 6) : rng.int(4, 36);
+        const acceptanceRate = round(rng.float(0.72, 0.98), 2);
+        const orderId = `ord_${String(orderNumber).padStart(6, "0")}`;
+        orderNumber += 1;
+
+        const createdAtIso = iso(createdAt);
+        const acceptedAtIso = iso(acceptedAt);
+        const readyAtIso = iso(readyAt);
+        const deliveredAtIso = iso(deliveredAt);
+        const createdForAsset = iso(START_TIME);
+
+        pushAssetEvent(consumerAssets, {
+          asset_id: `asset_${consumerId}_consumer_demand`,
+          owner_id: consumerId,
+          role: "consumer" as Role,
+          data_type: "consumer_demand",
+          created_at: createdForAsset,
+        }, {
+          order_id: orderId,
+          timestamp: createdAtIso,
+          grid_id: grid.grid_id,
+          event_type: "order_created",
+          order_value: round(rng.float(11, 64), 2),
+          merchant_category: merchant.category,
+          consumer_id: consumerId,
+          pickup_grid: grid.grid_id,
+          dropoff_grid: dropoffGrid.grid_id,
+        });
+
+        pushAssetEvent(merchantAssets, {
+          asset_id: `asset_${merchant.id}_merchant_operations`,
+          owner_id: merchant.id,
+          role: "merchant" as Role,
+          data_type: "merchant_operations",
+          created_at: createdForAsset,
+        }, {
+          order_id: orderId,
+          timestamp: readyAtIso,
+          grid_id: grid.grid_id,
+          event_type: "order_ready",
+          prep_time_min: prepTimeMin,
+          merchant_category: merchant.category,
+          merchant_id: merchant.id,
+        });
+
+        const baseRiderAsset = {
+          asset_id: `asset_${riderId}_rider_mobility`,
+          owner_id: riderId,
+          role: "rider" as Role,
+          data_type: "rider_mobility" as DataType,
+          created_at: createdForAsset,
+        };
+        pushAssetEvent(riderAssets, baseRiderAsset, {
+          order_id: orderId,
+          timestamp: acceptedAtIso,
+          grid_id: grid.grid_id,
+          event_type: "accepted",
+          lat: pickupLocation.lat,
+          lng: pickupLocation.lng,
+          speed_kmh: round(rng.float(8, 28), 1),
+          current_orders: currentOrders,
+          idle_time_min: idleTimeMin,
+          acceptance_rate: acceptanceRate,
+          rider_id: riderId,
+          pickup_grid: grid.grid_id,
+          dropoff_grid: dropoffGrid.grid_id,
+        });
+        pushAssetEvent(riderAssets, baseRiderAsset, {
+          order_id: orderId,
+          timestamp: deliveredAtIso,
+          grid_id: dropoffGrid.grid_id,
+          event_type: "delivered",
+          lat: jitterLocation(dropoffGrid.center, rng).lat,
+          lng: jitterLocation(dropoffGrid.center, rng).lng,
+          speed_kmh: round(rng.float(5, 22), 1),
+          current_orders: 0,
+          idle_time_min: 0,
+          acceptance_rate: acceptanceRate,
+          rider_id: riderId,
+          pickup_grid: grid.grid_id,
+          dropoff_grid: dropoffGrid.grid_id,
+          delivery_duration_min: deliveryDurationMin,
+        });
+      }
+    }
   }
 
-  return orders;
-};
+  const rawAssets: PersonalDataAsset[] = [
+    ...riderAssets.values(),
+    ...merchantAssets.values(),
+    ...consumerAssets.values(),
+  ].map((asset) => ({
+    ...asset,
+    events: [...asset.events].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+  }));
 
-const packageMetrics = (orders: OrderEvent[]): DataPackage["aggregated_metrics"] => {
-  const totalDistance = orders.reduce((sum, order) => sum + order.distance_km, 0);
-  const totalDeliveryTime = orders.reduce((sum, order) => sum + order.delivery_time_seconds, 0);
-  const totalAmount = orders.reduce((sum, order) => sum + order.order_amount_usdc, 0);
-  const gpsPointCount = orders.reduce((sum, order) => sum + order.gps_track.length, 0);
-  const peakHourDistribution: Record<string, number> = {};
-
-  for (const order of orders) {
-    const hour = new Date(order.order_created_at).getUTCHours().toString().padStart(2, "0");
-    peakHourDistribution[hour] = (peakHourDistribution[hour] ?? 0) + 1;
-  }
+  const encryptedAssets = rawAssets.map(mockEncrypt);
+  const manifest: LicenseManifestEntry[] = encryptedAssets.map((asset) => ({
+    asset_id: asset.asset_id,
+    owner_id: asset.owner_id,
+    role: asset.role,
+    data_type: asset.data_type,
+    blob_id: asset.blob_id,
+    key_id: asset.key_id,
+    path: manifestPath(asset.data_type, asset.asset_id),
+  }));
 
   return {
-    total_distance_km: round(totalDistance, 3),
-    avg_delivery_time_seconds: Math.round(totalDeliveryTime / orders.length),
-    avg_order_amount_usdc: round(totalAmount / orders.length, 2),
-    peak_hour_distribution: peakHourDistribution,
-    gps_point_count: gpsPointCount,
+    rawAssets,
+    encryptedAssets,
+    manifest,
+    summary: {
+      generated_at: iso(Date.now()),
+      start_time: iso(START_TIME),
+      days: SIMULATION_DAYS,
+      window_minutes: WINDOW_MINUTES,
+      grids: grids.length,
+      grid_time_rows_expected: windowCount * grids.length,
+      total_orders: orderNumber - 1,
+      assets: {
+        rider_mobility: riderAssets.size,
+        merchant_operations: merchantAssets.size,
+        consumer_demand: consumerAssets.size,
+      },
+    },
   };
-};
-
-export const groupIntoPackages = (orders: OrderEvent[], packageSize = 10): DataPackage[] => {
-  const packages: DataPackage[] = [];
-
-  for (let start = 0; start < orders.length; start += packageSize) {
-    const packageOrders = orders.slice(start, start + packageSize);
-    const firstOrder = packageOrders[0];
-    const packageNumber = packages.length + 1;
-
-    packages.push({
-      package_id: `package_${String(packageNumber).padStart(2, "0")}`,
-      rider_id: firstOrder.rider_id,
-      merchant_id: firstOrder.merchant_id,
-      orders: packageOrders,
-      aggregated_metrics: packageMetrics(packageOrders),
-      created_at: Math.max(...packageOrders.map((order) => order.delivered_at)) + MS_PER_MINUTE,
-    });
-  }
-
-  return packages;
 };

@@ -1,42 +1,48 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { DataPackage, OrderEvent, Summary } from "./types";
+import type { DataType, EncryptedAssetEnvelope, PersonalDataAsset, SimulationResult } from "./types";
 
 const writeJson = async (filePath: string, data: unknown): Promise<void> => {
+  await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 };
 
-export const createSummary = (orders: OrderEvent[], packages: DataPackage[]): Summary => {
-  const totalDistance = orders.reduce((sum, order) => sum + order.distance_km, 0);
-  const totalDeliveryTime = orders.reduce((sum, order) => sum + order.delivery_time_seconds, 0);
-  const totalAmount = orders.reduce((sum, order) => sum + order.order_amount_usdc, 0);
+const rawAssetPath = (outputDir: string, asset: PersonalDataAsset): string =>
+  path.join(outputDir, "raw_assets", asset.data_type, `${asset.asset_id}.json`);
 
-  return {
-    total_orders: orders.length,
-    total_distance_km: Math.round(totalDistance * 1000) / 1000,
-    avg_delivery_time_seconds: Math.round(totalDeliveryTime / orders.length),
-    avg_order_amount_usdc: Math.round((totalAmount / orders.length) * 100) / 100,
-    total_packages: packages.length,
-    timestamp: Date.now(),
-  };
-};
+const encryptedAssetPath = (outputDir: string, asset: EncryptedAssetEnvelope): string =>
+  path.join(outputDir, "mock_walrus", "encrypted_assets", asset.data_type, `${asset.asset_id}.json`);
+
+const keyRecords = (assets: EncryptedAssetEnvelope[]): Record<string, string> =>
+  Object.fromEntries(assets.map((asset) => [asset.key_id, "mock-local-development-key"]));
+
+const countEventsByType = (assets: PersonalDataAsset[], dataType: DataType): number =>
+  assets
+    .filter((asset) => asset.data_type === dataType)
+    .reduce((sum, asset) => sum + asset.events.length, 0);
 
 export const writeSimulatorOutput = async (
-  orders: OrderEvent[],
-  packages: DataPackage[],
+  simulation: SimulationResult,
   outputDir = path.resolve(process.cwd(), "output"),
-): Promise<Summary> => {
-  const packagesDir = path.join(outputDir, "packages");
-  await mkdir(packagesDir, { recursive: true });
+): Promise<void> => {
+  await rm(outputDir, { recursive: true, force: true });
 
-  await writeJson(path.join(outputDir, "all_orders.json"), orders);
-
-  for (const dataPackage of packages) {
-    await writeJson(path.join(packagesDir, `${dataPackage.package_id}.json`), dataPackage);
+  for (const asset of simulation.rawAssets) {
+    await writeJson(rawAssetPath(outputDir, asset), asset);
   }
 
-  const summary = createSummary(orders, packages);
-  await writeJson(path.join(outputDir, "summary.json"), summary);
+  for (const asset of simulation.encryptedAssets) {
+    await writeJson(encryptedAssetPath(outputDir, asset), asset);
+  }
 
-  return summary;
+  await writeJson(path.join(outputDir, "license_manifest.json"), simulation.manifest);
+  await writeJson(path.join(outputDir, "mock_walrus", "mock_keys.json"), keyRecords(simulation.encryptedAssets));
+  await writeJson(path.join(outputDir, "simulation_summary.json"), {
+    ...simulation.summary,
+    event_counts: {
+      rider_mobility: countEventsByType(simulation.rawAssets, "rider_mobility"),
+      merchant_operations: countEventsByType(simulation.rawAssets, "merchant_operations"),
+      consumer_demand: countEventsByType(simulation.rawAssets, "consumer_demand"),
+    },
+  });
 };

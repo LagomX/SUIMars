@@ -1,18 +1,17 @@
-import { generateOrders, groupIntoPackages } from "./generator";
+import { generateSimulation } from "./generator";
 import { writeSimulatorOutput } from "./output";
 
 const main = async (): Promise<void> => {
-  const orders = generateOrders(100);
-  const packages = groupIntoPackages(orders, 10);
-  const summary = await writeSimulatorOutput(orders, packages);
+  const simulation = generateSimulation(42);
+  await writeSimulatorOutput(simulation);
 
-  console.log("Generated 100 orders");
-  console.log("Created 10 data packages");
-  console.log("Summary stats");
-  console.log(`Total distance: ${summary.total_distance_km} km`);
-  console.log(`Average delivery time: ${summary.avg_delivery_time_seconds} seconds`);
-  console.log(`Average order amount: ${summary.avg_order_amount_usdc} USDC`);
-  console.log(`Timestamp: ${summary.timestamp}`);
+  console.log("Mars simulator generated personal raw DataAssets");
+  console.log(`Orders: ${simulation.summary.total_orders}`);
+  console.log(`Expected grid-time rows after aggregation: ${simulation.summary.grid_time_rows_expected}`);
+  console.log(`Rider assets: ${simulation.summary.assets.rider_mobility}`);
+  console.log(`Merchant assets: ${simulation.summary.assets.merchant_operations}`);
+  console.log(`Consumer assets: ${simulation.summary.assets.consumer_demand}`);
+  console.log("Output: simulator/output");
 };
 
 main().catch((error) => {

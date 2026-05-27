@@ -1,57 +1,108 @@
-export interface GpsPoint {
+export type Role = "rider" | "merchant" | "consumer";
+export type DataType = "rider_mobility" | "merchant_operations" | "consumer_demand";
+
+export interface Location {
   lat: number;
   lng: number;
-  timestamp: number; // unix ms
 }
 
-export interface OrderEvent {
+export interface Grid {
+  grid_id: string;
+  row: number;
+  col: number;
+  center: Location;
+}
+
+export interface RiderEvent {
   order_id: string;
-  customer_id: string;
-  merchant_id: string;
+  timestamp: string;
+  grid_id: string;
+  event_type: "accepted" | "picked_up" | "delivered";
+  lat: number;
+  lng: number;
+  speed_kmh: number;
+  current_orders: number;
+  idle_time_min: number;
+  acceptance_rate: number;
   rider_id: string;
-  merchant_location: GpsPoint;
-  delivery_location: GpsPoint;
-  gps_track: GpsPoint[]; // rider movement, one point every 30 seconds
-  order_created_at: number;
-  picked_up_at: number;
-  delivered_at: number;
-  delivery_time_seconds: number;
-  distance_km: number;
-  order_amount_usdc: number; // 8-25 USDC
-  items: OrderItem[];
-  confirmations: {
-    customer_confirmed: boolean;
-    merchant_confirmed: boolean;
-    rider_confirmed: boolean;
-  };
+  pickup_grid: string;
+  dropoff_grid: string;
+  delivery_duration_min?: number;
 }
 
-export interface OrderItem {
-  name: string;
-  price_usdc: number;
-  quantity: number;
-}
-
-export interface DataPackage {
-  package_id: string;
-  rider_id: string;
+export interface MerchantEvent {
+  order_id: string;
+  timestamp: string;
+  grid_id: string;
+  event_type: "order_ready";
+  prep_time_min: number;
+  merchant_category: string;
   merchant_id: string;
-  orders: OrderEvent[]; // 10 orders per package
-  aggregated_metrics: {
-    total_distance_km: number;
-    avg_delivery_time_seconds: number;
-    avg_order_amount_usdc: number;
-    peak_hour_distribution: Record<string, number>; // "09": 3, "12": 5 etc
-    gps_point_count: number;
-  };
-  created_at: number;
 }
 
-export interface Summary {
+export interface ConsumerEvent {
+  order_id: string;
+  timestamp: string;
+  grid_id: string;
+  event_type: "order_created";
+  order_value: number;
+  merchant_category: string;
+  consumer_id: string;
+  pickup_grid: string;
+  dropoff_grid: string;
+}
+
+export type PersonalEvent = RiderEvent | MerchantEvent | ConsumerEvent;
+
+export interface PersonalDataAsset<TEvent extends PersonalEvent = PersonalEvent> {
+  asset_id: string;
+  owner_id: string;
+  role: Role;
+  data_type: DataType;
+  events: TEvent[];
+  created_at: string;
+}
+
+export interface EncryptedAssetEnvelope {
+  asset_id: string;
+  owner_id: string;
+  role: Role;
+  data_type: DataType;
+  blob_id: string;
+  key_id: string;
+  ciphertext_base64: string;
+  encryption: "mock-base64";
+  created_at: string;
+}
+
+export interface LicenseManifestEntry {
+  asset_id: string;
+  owner_id: string;
+  role: Role;
+  data_type: DataType;
+  blob_id: string;
+  key_id: string;
+  path: string;
+}
+
+export interface SimulationResult {
+  rawAssets: PersonalDataAsset[];
+  encryptedAssets: EncryptedAssetEnvelope[];
+  manifest: LicenseManifestEntry[];
+  summary: SimulationSummary;
+}
+
+export interface SimulationSummary {
+  generated_at: string;
+  start_time: string;
+  days: number;
+  window_minutes: number;
+  grids: number;
+  grid_time_rows_expected: number;
   total_orders: number;
-  total_distance_km: number;
-  avg_delivery_time_seconds: number;
-  avg_order_amount_usdc: number;
-  total_packages: number;
-  timestamp: number;
+  assets: {
+    rider_mobility: number;
+    merchant_operations: number;
+    consumer_demand: number;
+  };
 }
