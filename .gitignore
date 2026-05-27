@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+.pnpm-store/
+__pycache__/
+*.pyc
 
 # Expo / React Native
 .expo/
@@ -26,6 +29,9 @@ pnpm-debug.log*
 
 # Generated mock protocol outputs
 simulator/output/
+simulator/users/*.json
+!simulator/users/*.example.json
+simulator/wallets/generated/*.json
 walrus-uploader/output/
 license-flow/output/
 seal-mock/output/
@@ -33,6 +39,7 @@ aggregator/output/
 ai-agent/demand_prediction/output/
 ai-agent/dispatch_optimization/output/
 publish-testnet*.json
+*.local.json
 
 # Sui Move build artifacts
 contracts/mars/build/

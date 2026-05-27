@@ -13,6 +13,34 @@ export interface Grid {
   center: Location;
 }
 
+export interface SimulatedUser {
+  user_id: string;
+  role: Role;
+  sui_address: string;
+  private_key: string;
+  wallet_type: "generated_ed25519_testnet";
+  network: "sui_testnet";
+}
+
+export interface Contributor {
+  addr: string;
+  role: Role;
+  weight_bps: number;
+}
+
+export interface OrderRecord {
+  order_id: string;
+  consumer_id: string;
+  consumer_address: string;
+  merchant_id: string;
+  merchant_address: string;
+  rider_id: string;
+  rider_address: string;
+  pickup_grid: string;
+  dropoff_grid: string;
+  created_at: string;
+}
+
 export interface RiderEvent {
   order_id: string;
   timestamp: string;
@@ -57,8 +85,10 @@ export type PersonalEvent = RiderEvent | MerchantEvent | ConsumerEvent;
 export interface PersonalDataAsset<TEvent extends PersonalEvent = PersonalEvent> {
   asset_id: string;
   owner_id: string;
+  owner: string;
   role: Role;
   data_type: DataType;
+  contributors: Contributor[];
   events: TEvent[];
   created_at: string;
 }
@@ -66,6 +96,7 @@ export interface PersonalDataAsset<TEvent extends PersonalEvent = PersonalEvent>
 export interface EncryptedAssetEnvelope {
   asset_id: string;
   owner_id: string;
+  owner: string;
   role: Role;
   data_type: DataType;
   blob_id: string;
@@ -78,6 +109,7 @@ export interface EncryptedAssetEnvelope {
 export interface LicenseManifestEntry {
   asset_id: string;
   owner_id: string;
+  owner: string;
   role: Role;
   data_type: DataType;
   blob_id: string;
@@ -86,6 +118,7 @@ export interface LicenseManifestEntry {
 }
 
 export interface SimulationResult {
+  orders: OrderRecord[];
   rawAssets: PersonalDataAsset[];
   encryptedAssets: EncryptedAssetEnvelope[];
   manifest: LicenseManifestEntry[];

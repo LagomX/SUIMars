@@ -6,11 +6,15 @@ import type {
   LicenseManifestEntry,
   Location,
   MerchantEvent,
+  OrderRecord,
   PersonalDataAsset,
   RiderEvent,
   Role,
   SimulationResult,
+  SimulatedUser,
 } from "./types";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
@@ -20,6 +24,11 @@ const START_TIME = Date.UTC(2026, 4, 26, 0, 0, 0);
 const GRID_ROWS = ["A", "B", "C", "D"] as const;
 const GRID_COLS = [1, 2, 3, 4] as const;
 const MERCHANT_CATEGORIES = ["fast_food", "coffee", "grocery", "sushi", "pizza", "dessert"] as const;
+
+interface MerchantProfile extends SimulatedUser {
+  grid: Grid;
+  category: string;
+}
 
 class SeededRandom {
   private state: number;
@@ -124,9 +133,41 @@ const pushAssetEvent = <TEvent extends RiderEvent | MerchantEvent | ConsumerEven
   assetMap.set(asset.asset_id, { ...asset, events: [event] });
 };
 
+const assertContributorWeights = (asset: Omit<PersonalDataAsset, "events">): void => {
+  const total = asset.contributors.reduce((sum, contributor) => sum + contributor.weight_bps, 0);
+  if (total !== 10000) {
+    throw new Error(`Contributor weights for ${asset.asset_id} must total 10000, got ${total}`);
+  }
+};
+
+const createSingleOwnerAsset = (
+  owner: SimulatedUser,
+  dataType: DataType,
+  createdAt: string,
+): Omit<PersonalDataAsset, "events"> => {
+  const asset = {
+    asset_id: `asset_${owner.user_id}_${dataType}`,
+    owner_id: owner.user_id,
+    owner: owner.sui_address,
+    role: owner.role,
+    data_type: dataType,
+    contributors: [
+      {
+        addr: owner.sui_address,
+        role: owner.role,
+        weight_bps: 10000,
+      },
+    ],
+    created_at: createdAt,
+  };
+  assertContributorWeights(asset);
+  return asset;
+};
+
 const mockEncrypt = (asset: PersonalDataAsset): EncryptedAssetEnvelope => ({
   asset_id: asset.asset_id,
   owner_id: asset.owner_id,
+  owner: asset.owner,
   role: asset.role,
   data_type: asset.data_type,
   blob_id: `blob_${asset.asset_id}`,
@@ -139,20 +180,37 @@ const mockEncrypt = (asset: PersonalDataAsset): EncryptedAssetEnvelope => ({
 const manifestPath = (dataType: DataType, assetId: string): string =>
   `mock_walrus/encrypted_assets/${dataType}/${assetId}.json`;
 
+const loadGeneratedUsers = (usersPath = path.resolve(process.cwd(), "users", "all_users.json")): SimulatedUser[] => {
+  try {
+    return JSON.parse(readFileSync(usersPath, "utf8")) as SimulatedUser[];
+  } catch {
+    throw new Error(`Missing generated Sui testnet users at ${usersPath}. Run: pnpm simulator:wallets`);
+  }
+};
+
+const usersByRole = (users: SimulatedUser[], role: Role): SimulatedUser[] =>
+  users.filter((user) => user.role === role);
+
 export const generateSimulation = (seed = 42): SimulationResult => {
   const rng = new SeededRandom(seed);
   const grids = createGrids();
-  const riders = Array.from({ length: 32 }, (_, index) => `r_${String(index + 1).padStart(3, "0")}`);
-  const merchants = Array.from({ length: 48 }, (_, index) => ({
-    id: `m_${String(index + 1).padStart(3, "0")}`,
+  const users = loadGeneratedUsers();
+  const riders = usersByRole(users, "rider");
+  const consumers = usersByRole(users, "consumer");
+  const merchants: MerchantProfile[] = usersByRole(users, "merchant").map((merchant, index) => ({
+    ...merchant,
     grid: grids[index % grids.length],
     category: MERCHANT_CATEGORIES[index % MERCHANT_CATEGORIES.length],
   }));
-  const consumers = Array.from({ length: 180 }, (_, index) => `c_${String(index + 1).padStart(3, "0")}`);
+
+  if (riders.length === 0 || merchants.length === 0 || consumers.length === 0) {
+    throw new Error("Generated users must include riders, merchants, and consumers.");
+  }
 
   const riderAssets = new Map<string, PersonalDataAsset<RiderEvent>>();
   const merchantAssets = new Map<string, PersonalDataAsset<MerchantEvent>>();
   const consumerAssets = new Map<string, PersonalDataAsset<ConsumerEvent>>();
+  const orders: OrderRecord[] = [];
 
   let orderNumber = 1;
   const windowCount = SIMULATION_DAYS * 24 * (60 / WINDOW_MINUTES);
@@ -166,8 +224,8 @@ export const generateSimulation = (seed = 42): SimulationResult => {
       for (let i = 0; i < orderCount; i += 1) {
         const createdAt = windowStart + rng.int(0, WINDOW_MINUTES - 1) * MINUTE_MS;
         const merchant = rng.pick(merchants.filter((candidate) => candidate.grid.grid_id === grid.grid_id));
-        const riderId = rng.pick(riders);
-        const consumerId = rng.pick(consumers);
+        const rider = rng.pick(riders);
+        const consumer = rng.pick(consumers);
         const dropoffGrid = neighborGrid(grid, grids, rng);
         const pickupLocation = jitterLocation(grid.center, rng);
         const acceptDelayMin = round(rng.float(0.5, 4.8), 1);
@@ -189,47 +247,42 @@ export const generateSimulation = (seed = 42): SimulationResult => {
         const deliveredAtIso = iso(deliveredAt);
         const createdForAsset = iso(START_TIME);
 
-        pushAssetEvent(consumerAssets, {
-          asset_id: `asset_${consumerId}_consumer_demand`,
-          owner_id: consumerId,
-          role: "consumer" as Role,
-          data_type: "consumer_demand",
-          created_at: createdForAsset,
-        }, {
+        orders.push({
+          order_id: orderId,
+          consumer_id: consumer.user_id,
+          consumer_address: consumer.sui_address,
+          merchant_id: merchant.user_id,
+          merchant_address: merchant.sui_address,
+          rider_id: rider.user_id,
+          rider_address: rider.sui_address,
+          pickup_grid: grid.grid_id,
+          dropoff_grid: dropoffGrid.grid_id,
+          created_at: createdAtIso,
+        });
+
+        pushAssetEvent(consumerAssets, createSingleOwnerAsset(consumer, "consumer_demand", createdForAsset), {
           order_id: orderId,
           timestamp: createdAtIso,
           grid_id: grid.grid_id,
           event_type: "order_created",
           order_value: round(rng.float(11, 64), 2),
           merchant_category: merchant.category,
-          consumer_id: consumerId,
+          consumer_id: consumer.user_id,
           pickup_grid: grid.grid_id,
           dropoff_grid: dropoffGrid.grid_id,
         });
 
-        pushAssetEvent(merchantAssets, {
-          asset_id: `asset_${merchant.id}_merchant_operations`,
-          owner_id: merchant.id,
-          role: "merchant" as Role,
-          data_type: "merchant_operations",
-          created_at: createdForAsset,
-        }, {
+        pushAssetEvent(merchantAssets, createSingleOwnerAsset(merchant, "merchant_operations", createdForAsset), {
           order_id: orderId,
           timestamp: readyAtIso,
           grid_id: grid.grid_id,
           event_type: "order_ready",
           prep_time_min: prepTimeMin,
           merchant_category: merchant.category,
-          merchant_id: merchant.id,
+          merchant_id: merchant.user_id,
         });
 
-        const baseRiderAsset = {
-          asset_id: `asset_${riderId}_rider_mobility`,
-          owner_id: riderId,
-          role: "rider" as Role,
-          data_type: "rider_mobility" as DataType,
-          created_at: createdForAsset,
-        };
+        const baseRiderAsset = createSingleOwnerAsset(rider, "rider_mobility", createdForAsset);
         pushAssetEvent(riderAssets, baseRiderAsset, {
           order_id: orderId,
           timestamp: acceptedAtIso,
@@ -241,7 +294,7 @@ export const generateSimulation = (seed = 42): SimulationResult => {
           current_orders: currentOrders,
           idle_time_min: idleTimeMin,
           acceptance_rate: acceptanceRate,
-          rider_id: riderId,
+          rider_id: rider.user_id,
           pickup_grid: grid.grid_id,
           dropoff_grid: dropoffGrid.grid_id,
         });
@@ -256,7 +309,7 @@ export const generateSimulation = (seed = 42): SimulationResult => {
           current_orders: 0,
           idle_time_min: 0,
           acceptance_rate: acceptanceRate,
-          rider_id: riderId,
+          rider_id: rider.user_id,
           pickup_grid: grid.grid_id,
           dropoff_grid: dropoffGrid.grid_id,
           delivery_duration_min: deliveryDurationMin,
@@ -278,6 +331,7 @@ export const generateSimulation = (seed = 42): SimulationResult => {
   const manifest: LicenseManifestEntry[] = encryptedAssets.map((asset) => ({
     asset_id: asset.asset_id,
     owner_id: asset.owner_id,
+    owner: asset.owner,
     role: asset.role,
     data_type: asset.data_type,
     blob_id: asset.blob_id,
@@ -286,6 +340,7 @@ export const generateSimulation = (seed = 42): SimulationResult => {
   }));
 
   return {
+    orders,
     rawAssets,
     encryptedAssets,
     manifest,

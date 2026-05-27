@@ -1,0 +1,26 @@
+[
+  {
+    "user_id": "rider_001",
+    "role": "rider",
+    "sui_address": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "private_key": "suiprivkey1example_testnet_only_do_not_use",
+    "wallet_type": "generated_ed25519_testnet",
+    "network": "sui_testnet"
+  },
+  {
+    "user_id": "merchant_001",
+    "role": "merchant",
+    "sui_address": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "private_key": "suiprivkey1example_testnet_only_do_not_use",
+    "wallet_type": "generated_ed25519_testnet",
+    "network": "sui_testnet"
+  },
+  {
+    "user_id": "consumer_001",
+    "role": "consumer",
+    "sui_address": "0x2222222222222222222222222222222222222222222222222222222222222222",
+    "private_key": "suiprivkey1example_testnet_only_do_not_use",
+    "wallet_type": "generated_ed25519_testnet",
+    "network": "sui_testnet"
+  }
+]

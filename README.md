@@ -79,14 +79,25 @@ Install simulator dependencies:
 
 ```bash
 cd simulator
-npm install
+pnpm install
 cd ..
 ```
+
+Generate Sui testnet-compatible simulator wallets:
+
+```bash
+pnpm simulator:wallets
+```
+
+The simulator uses direct generated Ed25519 keypairs for testnet MVP users. zkLogin is production onboarding and is not integrated into the simulator.
+
+Security warning: generated private keys are for testnet/hackathon demos only. Never use them for mainnet funds.
 
 Install Python ML dependencies:
 
 ```bash
-pip3 install lightgbm scikit-learn
+pip3 install -r aggregator/requirements.txt
+pip3 install -r ai-agent/requirements.txt
 ```
 
 Run the full local pipeline:
@@ -98,7 +109,8 @@ scripts/run_mars_ai_pipeline.sh
 Equivalent manual steps:
 
 ```bash
-cd simulator && npm run generate && cd ..
+pnpm simulator:wallets
+pnpm simulator:generate
 python3 aggregator/main.py
 python3 ai-agent/demand_prediction/train_demand_model.py
 python3 ai-agent/demand_prediction/predict_demand.py
@@ -108,24 +120,30 @@ python3 ai-agent/dispatch_optimization/assign_rider.py
 Expected outputs:
 
 - `simulator/output/raw_assets/`
+- `simulator/output/orders.json`
 - `simulator/output/mock_walrus/encrypted_assets/`
 - `simulator/output/license_manifest.json`
 - `aggregator/output/demand_prediction_dataset.csv`
 - `aggregator/output/demand_prediction_dataset.json`
 - `aggregator/output/dispatch_dataset.json`
 - `ai-agent/demand_prediction/output/demand_model.pkl`
-- `ai-agent/demand_prediction/output/latest_grid_predictions.json`
+- `ai-agent/demand_prediction/output/demo_grid_predictions.json`
 - `ai-agent/dispatch_optimization/output/sample_assignment.json`
+
+The AI pipeline reads datasets directly from `aggregator/output/`. The `aggregator/output/buyer_dataset/` directory is an optional buyer delivery snapshot with copies of the final JSON and CSV files.
 
 ## Current Generated Scale
 
 Default simulator run:
 
+- 100 generated Sui testnet rider wallets
+- 40 generated Sui testnet merchant wallets
+- 500 generated Sui testnet consumer wallets
 - 7 days
 - 16 Santa Monica-style grids
 - 15-minute windows
 - about 16k generated orders
-- 260 personal DataAssets
+- 640 personal DataAssets
 - 10,752 demand prediction grid-time rows
 - 500 dispatch optimization sample states
 
@@ -150,6 +168,8 @@ Dispatch uses:
 - incoming order state;
 - candidate rider states;
 - global demand state from the aggregated dataset.
+
+In the MVP, candidate rider states are synthetic. A production dispatch engine would query live rider state from the platform.
 
 The MVP uses rule-based scoring:
 

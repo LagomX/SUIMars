@@ -7,6 +7,7 @@ const main = async (): Promise<void> => {
 
   console.log("Mars simulator generated personal raw DataAssets");
   console.log(`Orders: ${simulation.summary.total_orders}`);
+  console.log(`Order records include Sui owner addresses`);
   console.log(`Expected grid-time rows after aggregation: ${simulation.summary.grid_time_rows_expected}`);
   console.log(`Rider assets: ${simulation.summary.assets.rider_mobility}`);
   console.log(`Merchant assets: ${simulation.summary.assets.merchant_operations}`);

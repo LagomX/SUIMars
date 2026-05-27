@@ -2,15 +2,19 @@
   "name": "mars-simulator",
   "version": "1.0.0",
   "scripts": {
-    "generate": "ts-node src/index.ts"
+    "generate": "ts-node src/index.ts",
+    "wallets": "tsx wallets/generate_testnet_wallets.ts",
+    "faucet": "tsx wallets/fund_testnet_wallets.ts"
   },
   "dependencies": {
+    "@mysten/sui": "^2.17.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
     "@types/uuid": "^9.0.0",
-    "@types/node": "^20.0.0"
+    "ts-node": "^10.9.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.0.0"
   }
 }

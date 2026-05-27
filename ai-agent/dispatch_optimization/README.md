@@ -4,6 +4,8 @@ Dispatch Optimization uses the buyer-side dispatch dataset plus demand state fro
 
 The MVP intentionally uses rule-based scoring, not reinforcement learning. Weights are configurable through the `DispatchWeights` dataclass in `dispatch_scoring.py`.
 
+Candidate riders in the MVP dispatch dataset are synthetic states generated from licensed order data. Real dispatch would query live rider availability, position, and workload from the platform.
+
 Scoring formula:
 
 ```text

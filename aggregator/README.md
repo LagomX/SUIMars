@@ -7,6 +7,7 @@ It does not treat Mars as the owner of raw plaintext data. The simulator writes 
 ## Run
 
 ```bash
+pip3 install -r aggregator/requirements.txt
 python3 aggregator/main.py
 ```
 
@@ -17,6 +18,8 @@ Outputs:
 - `aggregator/output/dispatch_dataset.json`
 - `aggregator/output/buyer_dataset/manifest.json`
 
+`aggregator/output/` contains the working files read directly by the AI pipeline. `aggregator/output/buyer_dataset/` is a buyer delivery snapshot containing copies of the final datasets.
+
 ## Pipeline
 
 1. `fetch_assets.py` loads `simulator/output/license_manifest.json`.
@@ -25,3 +28,5 @@ Outputs:
 4. `build_grid_time_dataset.py` creates 15-minute grid-time forecasting rows.
 5. `build_dispatch_dataset.py` creates real-time order and candidate rider states.
 6. `export_buyer_dataset.py` writes clean buyer-facing JSON and CSV files.
+
+MVP note: dispatch candidate riders are synthetic states generated from the licensed order data. A production dispatch system would query live rider state from the platform.

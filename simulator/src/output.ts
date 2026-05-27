@@ -27,6 +27,8 @@ export const writeSimulatorOutput = async (
 ): Promise<void> => {
   await rm(outputDir, { recursive: true, force: true });
 
+  await writeJson(path.join(outputDir, "orders.json"), simulation.orders);
+
   for (const asset of simulation.rawAssets) {
     await writeJson(rawAssetPath(outputDir, asset), asset);
   }

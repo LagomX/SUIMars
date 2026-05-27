@@ -1,0 +1,9 @@
+{
+  "name": "mars",
+  "private": true,
+  "scripts": {
+    "simulator:wallets": "pnpm --dir simulator wallets",
+    "simulator:faucet": "pnpm --dir simulator faucet",
+    "simulator:generate": "pnpm --dir simulator generate"
+  }
+}

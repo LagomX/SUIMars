@@ -24,6 +24,8 @@ def build_dispatch_rows(
 
     rows: list[dict[str, Any]] = []
     candidate_pool = sorted({order["rider_id"] for order in orders})
+    # Track cumulative orders dispatched per rider in this session (for fairness scoring)
+    rider_session_orders: dict[str, int] = defaultdict(int)
 
     for order in orders[:max_rows]:
         window = max(
@@ -31,6 +33,14 @@ def build_dispatch_rows(
             default=demand_rows[0]["window_start"],
         )
         grid_state = demand_by_grid_window.get((order["pickup_grid"], window), demand_rows[0])
+
+        # Per-grid demand map for the current window — used by dispatch_scoring for
+        # demand_balance_score, which prefers dispatching riders from low-demand grids.
+        grid_demand_map: dict[str, int] = {
+            row["grid_id"]: int(row["future_30min_order_count"])
+            for row in by_window.get(window, [])
+        }
+
         candidates = []
         for index, rider_id in enumerate(candidate_pool[:8]):
             synthetic_grid = order["pickup_grid"] if rider_id == order["rider_id"] else f"SM_{chr(65 + index % 4)}{(index % 4) + 1}"
@@ -42,8 +52,13 @@ def build_dispatch_rows(
                     "idle_time_min": order["idle_time_min"] if rider_id == order["rider_id"] else 4 + index * 3,
                     "acceptance_rate": order["acceptance_rate"] if rider_id == order["rider_id"] else round(0.72 + index * 0.025, 2),
                     "current_orders": order["current_orders"] if rider_id == order["rider_id"] else index % 2,
+                    # Orders completed so far in this session — used for fairness scoring
+                    "orders_in_session": rider_session_orders[rider_id],
                 }
             )
+
+        # Increment AFTER building candidates so the current order is not yet counted
+        rider_session_orders[order["rider_id"]] += 1
 
         active = max(1, grid_state["active_riders"])
         rows.append(
@@ -62,6 +77,8 @@ def build_dispatch_rows(
                     "pending_orders": grid_state["pending_orders"],
                     "supply_demand_ratio": round(active / max(1, grid_state["pending_orders"] + grid_state["future_30min_order_count"]), 2),
                     "traffic_level": grid_state["traffic_level"],
+                    # Per-grid demand snapshot for rider-specific demand_balance scoring
+                    "grid_demand_map": grid_demand_map,
                 },
             }
         )

@@ -11,6 +11,8 @@ from typing import Any
 
 WINDOW_MINUTES = 15
 GRID_IDS = [f"SM_{row}{col}" for row in "ABCD" for col in range(1, 5)]
+# Integer encoding for LightGBM categorical feature (0–15)
+GRID_INDEX = {grid_id: idx for idx, grid_id in enumerate(GRID_IDS)}
 
 
 def parse_ts(value: str) -> datetime:
@@ -51,6 +53,7 @@ def build_grid_time_rows(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_window_grid: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     active_by_window_grid: dict[tuple[str, str], set[str]] = defaultdict(set)
     pending_by_window_grid: dict[tuple[str, str], int] = defaultdict(int)
+    merchants_by_grid: dict[str, set[str]] = defaultdict(set)
 
     for order in orders:
         created_at = parse_ts(order["created_at"])
@@ -58,6 +61,7 @@ def build_grid_time_rows(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
         delivered_at = parse_ts(order["delivered_at"])
         key = (iso(floor_window(created_at)), order["pickup_grid"])
         by_window_grid[key].append(order)
+        merchants_by_grid[order["pickup_grid"]].add(order["merchant_id"])
 
         first_active = max(start, floor_window(accepted_at))
         last_active = min(end - timedelta(minutes=WINDOW_MINUTES), floor_window(delivered_at))
@@ -74,6 +78,8 @@ def build_grid_time_rows(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if created_at <= window_end and delivered_at > window_end:
                 pending_by_window_grid[(iso(current), order["pickup_grid"])] += 1
             current += timedelta(minutes=WINDOW_MINUTES)
+
+    max_merchant_count = max((len(merchants) for merchants in merchants_by_grid.values()), default=1)
 
     rows: list[dict[str, Any]] = []
     for window_index in range(window_count):
@@ -97,6 +103,7 @@ def build_grid_time_rows(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "grid_id": grid_id,
+                    "grid_index": GRID_INDEX[grid_id],  # 0–15 integer for LightGBM categorical
                     "window_start": window_key,
                     "window_minutes": WINDOW_MINUTES,
                     "order_count_t0": len(current_orders),
@@ -119,7 +126,7 @@ def build_grid_time_rows(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         2,
                     ),
                     "merchant_count": merchant_count,
-                    "merchant_density": round(merchant_count / 15, 2),
+                    "merchant_density": round(merchant_count / max(1, max_merchant_count), 2),
                     "traffic_level": traffic_level(hour, grid_id),
                     "weather_code": weather_code(dow),
                     "hour_of_day": hour,
