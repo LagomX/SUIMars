@@ -29,6 +29,9 @@ simulator/output/
 walrus-uploader/output/
 license-flow/output/
 seal-mock/output/
+aggregator/output/
+ai-agent/demand_prediction/output/
+ai-agent/dispatch_optimization/output/
 publish-testnet*.json
 
 # Sui Move build artifacts
