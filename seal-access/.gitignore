@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+
+# Decrypted plaintext output — demo only, never commit real datasets
+output/decrypted_dataset.json
+output/seal_access_receipt.json

@@ -1,11 +1,13 @@
 {
-  "name": "mars-walrus-uploader",
+  "name": "mars-seal-access",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "upload": "ts-node src/index.ts"
+    "decrypt": "tsx src/index.ts decrypt",
+    "decrypt:denied": "tsx src/index.ts decrypt --use-unlicensed-simulator-user"
   },
   "dependencies": {
     "@mysten/seal": "^1.1.3",
@@ -14,7 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.22.3",
     "typescript": "^5.0.0"
   }
 }

@@ -1,1070 +1,543 @@
 # Mars Architecture
 
-Mars is a decentralized delivery + user-owned data licensing protocol on Sui. The current codebase implements a complete Mars V4 mock protocol loop: delivery data is simulated, encrypted, registered as role-owned DataAssets, licensed to AI buyers, monetized through rewards, and unlocked through a Seal-style access-control check.
-
-This document is a technical reference for maintainers, reviewers, and future contributors. It describes the system as implemented today, including mock assumptions and the intended production replacement points.
-
-## System Overview
-
-Mars V4 validates this end-to-end loop:
-
-```text
-delivery simulation
-  -> encrypted user-owned data
-  -> decentralized storage abstraction
-  -> DataAsset registration
-  -> programmable licensing
-  -> reward distribution
-  -> license-gated decryption
-  -> frontend ownership dashboard
-```
-
-The current implementation is deliberately modular. Each stage has a narrow responsibility and writes JSON outputs that the next stage consumes. This makes the protocol easy to inspect before replacing mock layers with real Walrus, Sui, Seal, zkLogin, and USDC integrations.
+Mars is a decentralized delivery data infrastructure protocol on Sui + Walrus + Seal. It turns real-world delivery activity into user-owned encrypted DataAssets, licenses access to AI buyers through on-chain DataLicenses, and demonstrates AI utility through demand prediction and dispatch optimization.
 
 ## Repository Structure
 
-```text
+```
 contracts/
-  mars/                  Sui Move package
+  mars/                  Sui Move package (5 modules)
+  register_data_assets.ts
+  prepare_data_license.ts
+  package.json / tsconfig.json
 
-simulator/               Delivery event simulator
+simulator/               Personal DataAsset + wallet generator
+  src/
+  wallets/
+  users/                 (gitignored — contains private keys)
+  output/
 
-walrus-uploader/         Encryption + mock Walrus upload + mock DataAsset registration
+walrus-uploader/         AES-256-GCM encryption + Walrus upload + Seal key registration
+  src/
 
-license-flow/            Listing, buyer purchases, DataLicense minting, rewards
+seal-access/             Seal access policy + AES-GCM decrypt
+  src/
+  input/
+  output/
 
-seal-mock/               License-gated key release and blob decryption
-
-mars-app/                Expo/React Native frontend with DataDashboard
-
-demo-runner/             Planned one-command orchestration entrypoint
+aggregator/              Python buyer-side licensed data pipeline
+ai-agent/                LightGBM demand prediction + dispatch optimization
+mars-app/                Expo/React Native ownership dashboard
+scripts/                 Local pipeline orchestration
 ```
 
-### `contracts/`
+---
 
-Contains `contracts/mars`, the Sui Move package. It models the intended on-chain protocol: orders, escrow, data assets, data licenses, reward pools, and mock USDC.
+## End-to-End Protocol Flow
 
-### `simulator/`
+```
+1. simulator:wallets
+   → 100 riders + 40 merchants + 500 consumers
+   → real Sui Ed25519 testnet keypairs
+   → simulator/users/all_users.json  (gitignored)
 
-Generates realistic delivery datasets. It creates 100 `OrderEvent` objects, groups them into 10 `DataPackage` files, and writes local JSON outputs used by the uploader.
+2. simulator:generate
+   → 640 PersonalDataAsset objects (one per user per data type)
+   → 16 043 simulated delivery orders
+   → simulator/output/raw_assets/**/*.json
+   → simulator/output/orders.json
 
-### `walrus-uploader/`
+3. walrus-uploader
+   → AES-256-GCM encrypt each DataAsset JSON
+   → upload ciphertext to Walrus testnet → blob_id
+   → SealClient.encrypt(aesKeyBytes, { packageId, id: dataAssetId }) → EncryptedObject
+   → Sui PTB: register_data_asset(blob_id, contributors, data_type) → DataAsset object ID
+   → walrus-uploader/output/upload_manifest.json
+   → contracts/output/data_asset_registry.json
+   → seal-access/output/seal_key_registry.json
 
-Reads simulator packages, creates role-specific data payloads, encrypts them with AES-256-GCM, writes ciphertext to mock Walrus storage, records key metadata locally, and writes mock DataAsset registration records.
+4. contracts (testnet deployment flow)
+   → sui client publish contracts/mars → PACKAGE_ID
+   → register_data_assets.ts → on-chain DataAsset shared objects
+   → prepare_data_license.ts → purchase DataLicense on-chain
 
-### `license-flow/`
+5. seal-access
+   Mock mode: demo AES key + mock policy check → AES-GCM decrypt
+   Real mode: PTB calls seal_approve → Seal key servers release AES key → decrypt
 
-Simulates the payment and licensing economy. It lists DataAssets, simulates AI buyer purchases, mints mock DataLicenses, fills reward pools, distributes rewards, and summarizes contributor earnings.
-
-### `seal-mock/`
-
-Simulates Seal-style access control. It verifies that a buyer owns a valid DataLicense for an asset before releasing decryption metadata, then decrypts the encrypted mock Walrus blob in memory.
-
-### `mars-app/`
-
-Expo/React Native frontend. Existing Customer, Merchant, and Rider flows remain intact. A Data tab reads local mock protocol outputs and displays data ownership, licensing, earnings, and access status.
-
-### `demo-runner/`
-
-Planned orchestration entrypoint for running the full mock protocol pipeline with one command. This directory is referenced as the intended demo wrapper; the current pipeline can also be run with the manual stage commands near the end of this document.
-
-```bash
-cd demo-runner
-npm install
-npm run demo
+6. aggregator + ai-agent (local AI pipeline)
+   → aggregate licensed DataAssets
+   → demand prediction training + inference
+   → dispatch optimization scoring
 ```
 
-## Detailed Protocol Flow
+---
 
-### Step 1: Simulator Generates Delivery Datasets
+## Module Reference
 
-`simulator/` creates delivery orders with realistic urban GPS tracks, timestamps, merchants, riders, customers, item lists, delivery amounts, and confirmation signals.
+### `contracts/mars/`
 
-Output:
-
-```text
-simulator/output/all_orders.json
-simulator/output/packages/package_01.json ... package_10.json
-simulator/output/summary.json
-```
-
-### Step 2: Walrus Uploader Encrypts Datasets
-
-`walrus-uploader/` reads each `DataPackage` and derives three role-specific datasets:
-
-- `rider_mobility`
-- `merchant_operations`
-- `consumer_behavior`
-
-Each derived payload is encrypted with AES-256-GCM before storage.
-
-### Step 3: Mock Walrus Blob Storage
-
-Only ciphertext is written to:
-
-```text
-walrus-uploader/output/mock-walrus/<blob_id>.bin
-```
-
-In mock mode, `blob_id` is `sha256(ciphertext)`.
-
-### Step 4: Mock DataAsset Registration
-
-The uploader writes registration records that mirror the future Sui `DataAsset` registration call. Each DataAsset has exactly one contributor with `weight_bps = 10000`.
-
-Output:
-
-```text
-walrus-uploader/output/upload_results.json
-walrus-uploader/output/registrations.json
-walrus-uploader/output/keys.json
-```
-
-### Step 5: Listing + DataLicense Minting
-
-`license-flow/` marks all DataAssets as listed and assigns MVP prices:
-
-- `rider_mobility`: 3 USDC
-- `merchant_operations`: 2 USDC
-- `consumer_behavior`: 1 USDC
-
-Mock AI buyers purchase assets. Every asset is purchased at least once, and some assets are purchased multiple times. Every purchase mints a mock DataLicense.
-
-### Step 6: Reward Distribution
-
-Each purchase adds payment to the asset reward pool. Since Mars V4 MVP assets are single-owner assets, `distribute_reward()` sends 100% of the reward pool to the single contributor.
-
-### Step 7: License-Gated Decryption
-
-`seal-mock/` checks whether a buyer owns a valid DataLicense for an asset. If valid, it releases the AES key metadata and decrypts the encrypted mock Walrus blob in memory. Invalid buyers, fake buyers, and fake asset IDs receive no key data.
-
-### Step 8: Frontend Ownership Dashboard
-
-`mars-app/` reads the mock JSON outputs and shows a role-specific Data tab:
-
-- Rider sees `rider_mobility`
-- Merchant sees `merchant_operations`
-- Customer sees `consumer_behavior`
-
-The dashboard summarizes assets, licenses sold, USDC earned, and access-control results.
-
-## Ownership Model
-
-Mars V4 does not use default multi-party split weights for role-specific data. Ownership is direct:
-
-| DataAsset type | Owner | Contributor weight |
-| --- | --- | --- |
-| `rider_mobility` | Rider | `10000` bps |
-| `merchant_operations` | Merchant | `10000` bps |
-| `consumer_behavior` | Consumer | `10000` bps |
-
-The current MVP does not create `aggregated_delivery_data` by default and does not use a 50/30/20 split. Aggregated multi-contributor assets may be added later as a separate explicit product path.
-
-## Module Deep Dive
-
-### `contracts/mars`
-
-#### Purpose
-
-The Move package models the future on-chain protocol. It is already buildable with:
-
-```bash
-cd contracts/mars
-sui move build
-```
-
-#### Key Files
-
-```text
-contracts/mars/sources/escrow.move
-contracts/mars/sources/data_asset.move
-contracts/mars/sources/data_license.move
-contracts/mars/sources/settlement.move
-contracts/mars/sources/usdc.move
-```
-
-#### `escrow.move`
-
-Purpose:
-
-- Tracks delivery order lifecycle.
-- Holds order payment in escrow.
-- Defines `AdminCap` for privileged actions.
-
-Key structs:
-
-- `AdminCap`: capability object held by deployer or secured operations wallet.
-- `OrderState`: enum for order lifecycle.
-- `Order`: shared object representing a delivery order.
-
-Order state model:
-
-```text
-Created
-  -> Paid
-  -> Accepted
-  -> Preparing
-  -> PickedUp
-  -> Delivered
-  -> Completed
-```
-
-Dispute/cancel paths:
-
-```text
-Created | Paid -> Cancelled
-Delivered -> Disputed -> Cancelled | Completed
-```
-
-Major functions:
-
-- `create_order(merchant, clock, ctx)`: creates and shares an `Order`.
-- `pay_order(order, payment, ctx)`: customer locks USDC into escrow.
-- `accept_order(order, ctx)`: merchant accepts paid order.
-- `pickup_order(order, ctx)`: rider claims pickup.
-- `mark_delivered(order, clock, ctx)`: rider marks delivered.
-- `confirm_completed(order, clock, ctx)`: customer confirms or anyone auto-completes after delay.
-- `raise_dispute(order, clock, ctx)`: customer opens dispute during dispute window.
-- `resolve_dispute(cap, order, ruling, ctx)`: admin resolves dispute.
-- `take_amount(order)`: package-only drain for settlement.
-
-Ownership rules:
-
-- Customer controls payment and cancellation before acceptance.
-- Merchant controls acceptance/preparation.
-- Rider controls delivery completion after pickup.
-- AdminCap controls dispute resolution.
+Sui Move package. Implements the full on-chain data economy.
 
 #### `data_asset.move`
 
-Purpose:
+Registers encrypted Walrus blobs as on-chain shared objects.
 
-- Registers encrypted delivery datasets.
-- Stores contributor ownership.
-- Tracks listing state, price, quality score, and reward pool.
+**Key struct:**
 
-Key structs:
+```move
+public struct DataAsset has key {
+    id: UID,
+    contributors: vector<Contributor>,
+    blob_id: vector<u8>,        // Walrus blob identifier
+    data_type: vector<u8>,      // "rider_mobility" | "merchant_operations" | "consumer_demand"
+    quality_score: u64,         // 0–100; written by AI Agent
+    price_usdc: Option<u64>,    // set by AI Agent via set_quality_and_price
+    for_sale: bool,             // contributor toggles to list the asset
+    reward_pool: Balance<USDC>, // accumulates from purchases
+    created_at: u64,
+}
+```
 
-- `Contributor`: address, role bytes, and `weight_bps`.
-- `DataAsset`: shared object for encrypted Walrus blob metadata and reward pool.
+**Key functions:**
 
-Major functions:
+- `new_contributor(addr, role, weight_bps)` — build a `Contributor` value in a PTB.
+- `register_data_asset(blob_id, contributors, data_type, clock, ctx)` — creates and shares a `DataAsset`; returns the stable Sui object ID used by Seal.
+- `set_quality_and_price(cap, asset, score, price, ctx)` — AI Agent sets quality and listing price (requires `AdminCap`).
+- `set_for_sale(asset, for_sale, ctx)` — contributor lists or delists the asset.
+- `distribute_reward(asset, ctx)` — distributes reward pool to contributors proportional to `weight_bps`.
 
-- `new_contributor(addr, role, weight_bps)`: helper to construct `Contributor`.
-- `register_data_asset(blob_id, contributors, data_type, clock, ctx)`: creates and shares a `DataAsset`.
-- `set_quality_and_price(cap, asset, score, price, ctx)`: admin/AI-agent price metadata.
-- `set_for_sale(asset, for_sale, ctx)`: contributor lists or delists asset.
-- `add_to_reward_pool(asset, payment, ctx)`: package-only funding from purchases.
-- `distribute_reward(asset, ctx)`: pays contributors based on weights.
+**Invariants:**
 
-Reward logic:
+- `sum(contributors.weight_bps) == 10 000` — enforced on registration.
+- Only contributors may call `set_for_sale`.
+- Only `purchase_access` funds `reward_pool` (package-visibility gate).
 
-- Current MVP uses one contributor at `10000` bps.
-- Distribution supports proportional weights and sends rounding remainder to the final contributor.
-- Uploader mock path currently avoids multi-contributor assets.
-
-Security assumptions:
-
-- `add_to_reward_pool` should only be called from purchase flow.
-- Contributors must sum to exactly `10000` bps.
-- Reward math uses widened intermediate arithmetic in current code to reduce overflow risk.
+---
 
 #### `data_license.move`
 
-Purpose:
+Mints `DataLicense` objects on purchase and enforces Seal access policy.
 
-- Handles AI buyer purchase of DataAsset access.
-- Mints non-publicly-transferable DataLicense objects.
-- Records buyer, asset, price, timestamp, and license type.
+**Key struct:**
 
-Key struct:
-
-- `DataLicense`: key object representing purchased access.
-
-Major functions:
-
-- `purchase_access(asset, payment, clock, ctx)`: validates listing, validates exact payment, funds reward pool, mints license.
-- `verify_license(asset, license, requester)`: checks asset match, buyer match, and perpetual license type.
-
-Lifecycle:
-
-```text
-DataAsset listed
-  -> buyer pays exact price
-  -> payment enters reward_pool
-  -> DataLicense minted to buyer
-  -> license can gate key release
+```move
+public struct DataLicense has key {
+    id: UID,
+    data_asset_id: ID,        // which DataAsset was licensed
+    buyer: address,
+    usdc_paid: u64,
+    purchased_at: u64,
+    license_type: vector<u8>, // b"perpetual"
+}
 ```
 
-Ownership rules:
+**Key functions:**
 
-- Current model is "who buys, who uses".
-- `DataLicense` does not have public `store`, so public transfer is intentionally restricted.
+- `purchase_access(asset, payment, clock, ctx)` — validates listing + exact payment, funds reward pool, mints DataLicense and transfers it to `ctx.sender()`.
+- `verify_license(asset, license, requester) → bool` — checks `data_asset_id` match, `buyer == requester`, perpetual license type.
+- **`seal_approve(id, license, asset, ctx)`** — Seal key server gate.
+
+**`seal_approve` detail:**
+
+```move
+public fun seal_approve(
+    id: vector<u8>,          // Seal IBE identity bytes = bcs::to_bytes(object::id(asset))
+    license: &DataLicense,   // buyer-owned object in PTB
+    asset: &DataAsset,       // shared object in PTB
+    ctx: &TxContext,
+) {
+    // Binds this key to exactly one DataAsset (prevents key confusion)
+    assert!(bcs::to_bytes(&object::id(asset)) == id, EUnauthorized);
+    // Caller must hold a valid perpetual DataLicense for this asset
+    assert!(verify_license(asset, license, ctx.sender()), EUnauthorized);
+}
+```
+
+Seal key servers call this function in a dry-run PTB. If it aborts, the key is not released.
+
+**How to build the PTB in TypeScript:**
+
+```typescript
+const tx = new Transaction();
+const assetIdBytes = Array.from(fromHex(dataAssetObjectId)); // 32 bytes
+tx.moveCall({
+  target: `${PACKAGE_ID}::data_license::seal_approve`,
+  arguments: [
+    tx.pure.vector("u8", assetIdBytes),
+    tx.object(licenseObjectId),    // buyer-owned DataLicense
+    tx.object(dataAssetObjectId),  // shared DataAsset
+  ],
+});
+const txBytes = await tx.build({ client: suiClient });
+// Pass to SealClient.decrypt({ data: sealEncryptedKeyBundle, sessionKey, txBytes })
+```
+
+---
+
+#### `escrow.move`
+
+Delivery order lifecycle and USDC escrow.
+
+**State machine:**
+
+```
+Created → Paid → Accepted → (Preparing →) PickedUp → Delivered → Completed
+                                                                ↘ Disputed → Cancelled | Completed
+Created | Paid → Cancelled
+```
+
+**Key functions:**
+
+- `create_order(merchant, clock, ctx)` — shares a new `Order`.
+- `pay_order(order, payment, ctx)` — customer locks USDC.
+- `accept_order` / `start_preparing` / `pickup_order` / `mark_delivered` — fulfillment chain.
+- `confirm_completed` — customer confirms or auto-completes after 24-hour window.
+- `raise_dispute` / `resolve_dispute` — dispute resolution within 24-hour window.
+- `link_data_asset(order, asset_id)` — package-internal; links a DataAsset to an order.
+
+Also defines `AdminCap` used by AI Agent for `set_quality_and_price` and dispute resolution.
+
+---
 
 #### `settlement.move`
 
-Purpose:
+Distributes completed order escrow.
 
-- Distributes completed delivery order escrow between merchant and rider.
+- Merchant: 85 % of escrow.
+- Rider: remainder (~15 %), absorbs rounding dust.
 
-Major function:
+Permissionless — anyone can call after `order.state == Completed`.
 
-- `settle_order(order, ctx)`: drains escrow from completed order and splits funds.
-
-Reward logic:
-
-- Merchant receives 85%.
-- Rider receives remainder, approximately 15%, absorbing rounding dust.
-
-This module handles delivery commerce settlement, not DataAsset licensing rewards.
+---
 
 #### `usdc.move`
 
-Purpose:
+Mock TestUSDC coin for testnet. `mint_for_testing(cap, amount, ctx)` seeds test wallets. Deployer receives `TreasuryCap`; metadata is frozen.
 
-- Defines mock USDC for testnet/MVP use.
+---
 
-Key pieces:
+### `contracts/register_data_assets.ts`
 
-- `USDC`: one-time witness.
-- `init(witness, ctx)`: creates currency and sends TreasuryCap to deployer.
-- `mint_for_testing(cap, amount, ctx)`: mints test USDC.
+TypeScript PTB script. After `walrus-uploader` produces `upload_manifest.json`, this script:
 
-## Data Lifecycles
+1. Reads each upload record.
+2. Builds a PTB calling `data_asset::new_contributor` + `data_asset::register_data_asset`.
+3. Signs with the deployer key (from Sui CLI wallet or `SUI_PRIVATE_KEY` env var).
+4. Writes `contracts/output/data_asset_registry.json` mapping `user_id → data_asset_id`.
 
-### Order Lifecycle
+**Usage:**
 
-Orders begin as shared `Order` objects, receive customer payment, move through merchant/rider fulfillment states, and end in completion, cancellation, or dispute resolution.
-
-### DataAsset Lifecycle
-
-```text
-encrypted payload created
-  -> blob_id generated
-  -> DataAsset registered
-  -> quality/price set
-  -> contributor lists asset
-  -> buyer purchases license
-  -> reward pool funded
-  -> rewards distributed
+```bash
+PACKAGE_ID=0x... pnpm --dir contracts register:data-assets
 ```
 
-### DataLicense Lifecycle
+---
 
-```text
-purchase_access()
-  -> exact payment accepted
-  -> DataLicense object minted
-  -> buyer owns license
-  -> Seal/mock Seal verifies ownership
-  -> key metadata released
+### `contracts/prepare_data_license.ts`
+
+TypeScript PTB script. Purchases a DataLicense on testnet by calling `data_license::purchase_access` with mock USDC.
+
+**Usage:**
+
+```bash
+PACKAGE_ID=0x... ADMIN_CAP_ID=0x... pnpm --dir contracts prepare:data-license
 ```
 
-### `simulator`
+---
 
-#### Purpose
+### `simulator/`
 
-Creates deterministic, realistic delivery data for protocol testing.
+Deterministic 7-day delivery simulator.
 
-#### Inputs
+**Wallet generation (`simulator/wallets/generate_testnet_wallets.ts`):**
 
-- No external API calls.
-- Fixed LA merchant seed locations.
-- Fixed riders and customers.
-- Seeded random generation.
+- Generates real Sui Ed25519 keypairs using `@mysten/sui`.
+- Outputs `simulator/users/all_users.json` — includes `sui_address` and `private_key`.
+- Private keys are gitignored. Never use these for mainnet funds.
+- Configurable via `MARS_RIDER_COUNT` / `MARS_MERCHANT_COUNT` / `MARS_CONSUMER_COUNT`.
 
-#### Outputs
+**DataAsset generation (`simulator/src/generator.ts`):**
 
-```text
-simulator/output/all_orders.json
-simulator/output/packages/package_01.json ... package_10.json
-simulator/output/summary.json
+- Reads `all_users.json`; throws descriptive error if missing (run `pnpm simulator:wallets` first).
+- Creates one `PersonalDataAsset` per user per data type.
+- Each asset embeds real Sui addresses in `owner` and `contributors[].addr`.
+- `assertContributorWeights` validates `sum(weight_bps) == 10 000`.
+- 16-grid spatial system (Santa Monica): `SM_A1` through `SM_D4`.
+- Seeded random → deterministic output for reproducible tests.
+
+**Key outputs:**
+
+```
+simulator/output/raw_assets/rider_mobility/*.json      (100 assets)
+simulator/output/raw_assets/merchant_operations/*.json (40 assets)
+simulator/output/raw_assets/consumer_demand/*.json     (500 assets)
+simulator/output/orders.json                           (16 043 orders)
+simulator/output/simulation_summary.json
 ```
 
-#### Core Types
+---
 
-`OrderEvent` includes:
+### `walrus-uploader/`
 
-- order/customer/merchant/rider IDs;
-- merchant and delivery locations;
-- GPS track;
-- created/pickup/delivered timestamps;
-- delivery duration and distance;
-- order amount and items;
-- confirmation flags.
+Encrypts personal DataAssets and wires them into Walrus, Seal, and Sui.
 
-`DataPackage` includes:
+**Pipeline (`uploadDataset.ts`):**
 
-- package ID;
-- rider and merchant IDs;
-- 10 orders;
-- aggregate metrics;
-- created timestamp.
-
-#### GPS Generation Logic
-
-The simulator starts the rider at the merchant location and ends at a random delivery location within a 3-5 km radius. It emits one GPS point every 30 seconds and adds small per-step noise to mimic real movement without teleportation.
-
-#### Anti-Fraud Consistency Rules
-
-- GPS track is spatially consistent.
-- All confirmations are true for normal orders.
-- `delivered_at = picked_up_at + delivery_time_seconds * 1000`.
-- Generated coordinates are finite and within valid lat/lng bounds.
-
-#### Major Functions
-
-- `generateOrders(count, seed)`: creates deterministic `OrderEvent` records.
-- `groupIntoPackages(orders, packageSize)`: groups orders into `DataPackage` files.
-- `distanceKm(a, b)`: computes route distance using haversine distance.
-- GPS helpers generate delivery endpoint and interpolated track.
-
-### `walrus-uploader`
-
-#### Purpose
-
-Converts simulator packages into encrypted role-owned DataAssets.
-
-#### Inputs
-
-```text
-../simulator/output/packages/*.json
+```
+for each raw asset JSON:
+  1. Validate contributor addresses and weight_bps
+  2. encryptBytes(plaintext) → { ciphertext, key, iv, authTag }
+  3. writeFile(encrypted_dir/<user_id>.bin, ciphertext)
+  4. uploadEncryptedBlob(ciphertext) → blob_id
+     mock: sha256 deterministic ID
+     real: walrus store --json
+  5. suiSealRegistration.registerUploadedDataset(manifest, aesKey)
+     → SealClient.encrypt(aesKey, { packageId, id: dataAssetId })
+     → writes seal-access/output/seal_key_registry.json
+     → registers DataAsset on Sui via register_data_asset PTB
+     → writes contracts/output/data_asset_registry.json
+  6. append record to upload_manifest.json
+     (raw AES key NOT written to disk in real mode)
 ```
 
-#### Outputs
+**Security:**
 
-```text
-walrus-uploader/output/upload_results.json
-walrus-uploader/output/registrations.json
-walrus-uploader/output/keys.json
-walrus-uploader/output/mock-walrus/*.bin
+- In **mock mode**: raw AES keys are not written to disk; `local_demo_keys.json` is not generated.
+- In **real mode**: AES key is passed to `SealClient.encrypt` and immediately discarded. Only the Seal `EncryptedObject` is persisted.
+- `MOCK_WALRUS=true` uses SHA-256 blob IDs and skips the Walrus CLI.
+
+**Config env vars (`.env.example`):**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MOCK_WALRUS` | `false` | Use deterministic mock blob IDs |
+| `WALRUS_CLI_PATH` | `walrus` | Path to Walrus CLI binary |
+| `WALRUS_CONTEXT` | `testnet` | Walrus network context |
+| `SEAL_KEY_SERVER_OBJECT_ID` | (testnet default) | Seal key server object ID |
+| `SEAL_AGGREGATOR_URL` | (testnet default) | Seal aggregator endpoint |
+| `MAX_UPLOADS` | unset | Limit uploads for smoke tests |
+
+---
+
+### `seal-access/`
+
+Seal-gated decryption module.
+
+**Architecture note:** Seal does not encrypt Walrus blobs. Walrus blobs are encrypted with a symmetric AES-256-GCM key. Seal protects that key:
+
+```
+Data owner → SealClient.encrypt(aesKeyBytes, { packageId, id: dataAssetId })
+           → EncryptedObject stored in seal_key_registry.json
+
+Buyer      → PTB calling seal_approve (proves DataLicense ownership)
+           → SealClient.decrypt(encryptedObject, { sessionKey, txBytes })
+           → recovers aesKeyBytes
+           → AES-GCM decrypt Walrus blob locally
+           → output/decrypted_dataset.json (demo only)
 ```
 
-#### Encryption Flow
+**Files:**
 
-Each role-specific payload is encrypted with AES-256-GCM:
+| File | Purpose |
+|---|---|
+| `src/types.ts` | `DataAssetMetadata`, `EncryptionMaterial`, `SealAccessPolicy`, `SealAccessReceipt` |
+| `src/config.ts` | `MOCK_SEAL`, `MOCK_BUYER_HAS_LICENSE`, paths, Sui/Seal env vars |
+| `src/accessPolicy.ts` | `buildDataLicensePolicy()`, `explainPolicy()` |
+| `src/keyRegistry.ts` | Registry loaders: data_asset_registry, data_license_registry, seal_key_registry |
+| `src/sealClient.ts` | `initializeSealClient`, `registerKeyWithSeal`, `requestDecryptKey` |
+| `src/decryptDataset.ts` | `decryptAes256Gcm()`, `decryptDatasetWithSealAccess()` |
+| `src/index.ts` | CLI: `--user-id`, `--buyer`, `--data-asset-id`, `--metadata`, `--encrypted` |
 
-```text
-JSON payload
-  -> random 256-bit key
-  -> random 96-bit IV
-  -> ciphertext
-  -> auth tag
-```
+**Mock mode (`MOCK_SEAL=true`):**
 
-Key metadata is stored locally in mock mode:
+- Reads demo AES key from `input/encryption_key.demo.json`.
+- Simulates DataLicense ownership check (`MOCK_BUYER_HAS_LICENSE=true|false`).
+- Access-denied path writes receipt with `access_granted: false` and exits with code 1.
+- No network calls.
 
-```text
-keyHex
-ivHex
-authTagHex
-```
+**Real mode (`MOCK_SEAL=false`):**
 
-Future V4/V5 should register key material with Seal rather than storing it locally.
+- Requires deployed `contracts/mars` package with `seal_approve` in `data_license.move`.
+- Requires Seal-registered AES key bundle in `seal_key_registry.json`.
+- Builds PTB calling `seal_approve`, submits to Seal key servers, decrypts locally.
 
-#### Mock Walrus Upload
-
-`uploadEncryptedBlob(ciphertext)`:
-
-- rejects empty ciphertext;
-- computes `blob_id = sha256(ciphertext)`;
-- writes ciphertext to `output/mock-walrus/<blob_id>.bin`;
-- returns `blob_id`.
-
-No plaintext is uploaded. Mock Walrus stores ciphertext only.
-
-#### Mock vs Real Abstraction
-
-`walrus.ts` isolates storage upload behavior. Mock mode is fully offline. Real Walrus integration can replace the adapter without changing encryption, licensing, or frontend consumers.
-
-#### Key Functions
-
-##### `encryptJson(data)`
-
-Input:
-
-- arbitrary JSON-serializable payload.
-
-Output:
-
-- ciphertext buffer;
-- `keyHex`;
-- `ivHex`;
-- `authTagHex`.
-
-Side effects:
-
-- none.
-
-Security assumptions:
-
-- caller uploads only ciphertext;
-- key metadata is not committed to public storage in production.
-
-##### `uploadEncryptedBlob(ciphertext)`
-
-Input:
-
-- encrypted buffer.
-
-Output:
-
-- string `blob_id`.
-
-Side effects:
-
-- in mock mode writes encrypted `.bin` file.
-
-Security assumptions:
-
-- ciphertext is non-empty;
-- plaintext never reaches storage layer.
-
-##### `registerDataAssetOnSui(params)`
-
-Input:
-
-- `blobId`;
-- contributor list;
-- data type;
-- package/asset metadata.
-
-Output:
-
-- transaction digest or mock digest.
-
-Side effects:
-
-- in mock mode appends registration records;
-- in future real mode builds Sui `Transaction`.
-
-Security assumptions:
-
-- contributor weights must sum to `10000`;
-- current MVP expects exactly one owner per role-specific asset.
-
-### `license-flow`
-
-#### Purpose
-
-Validates the licensing and reward economy before real Sui transactions.
-
-#### Inputs
-
-```text
-../walrus-uploader/output/upload_results.json
-../walrus-uploader/output/registrations.json
-```
-
-#### Outputs
-
-```text
-license-flow/output/listings.json
-license-flow/output/data_licenses.json
-license-flow/output/reward_distributions.json
-license-flow/output/contributor_earnings.json
-```
-
-#### Listings
-
-All DataAssets are listed with mock prices:
-
-- `rider_mobility`: 3 USDC
-- `merchant_operations`: 2 USDC
-- `consumer_behavior`: 1 USDC
-
-#### Purchases
-
-Three mock AI buyers purchase listed assets:
-
-- `ai_company_01`
-- `ai_company_02`
-- `ai_company_03`
-
-Every asset is purchased at least once. Some assets are purchased more than once.
-
-#### DataLicense Minting
-
-Every purchase mints:
+**Receipt format (`output/seal_access_receipt.json`):**
 
 ```json
 {
-  "license_id": "...",
-  "buyer_id": "...",
-  "asset_id": "...",
-  "data_type": "...",
-  "usdc_paid": 3,
-  "purchased_at": 1779364860000,
-  "license_type": "perpetual"
+  "mode": "mock",
+  "buyer": "0x...",
+  "data_asset_id": "0x...",
+  "blob_id": "...",
+  "policy": "DATA_LICENSE_OWNERSHIP",
+  "access_granted": true,
+  "reason": "Mock buyer owns DataLicense",
+  "timestamp": "2026-05-27T...",
+  "decrypted_output_path": "output/decrypted_dataset.json"
 }
 ```
 
-#### Reward Pools
+---
 
-Each purchase increases the asset reward pool by the paid amount. In the current MVP, each asset has one contributor, so the distribution sends 100% to that contributor.
+### `aggregator/`
 
-#### Major Functions
+Python buyer-side licensed data pipeline.
 
-- `listAssetsForSale(registrations)`: creates listing state.
-- `simulatePurchases(listings)`: deterministic buyer purchase simulation.
-- `mintLicenses(purchases)`: creates mock DataLicense records.
-- `distributeRewards(listings, purchases)`: distributes reward pools.
-- `summarizeEarnings(distributions)`: aggregates contributor/role earnings.
-- `validateFlow(state)`: verifies accounting and reference integrity.
+**Pipeline (`main.py`):**
 
-### `seal-mock`
+1. `fetch_assets.py` — loads licensed DataAssets from simulator output.
+2. `decrypt_assets.py` — AES-256-GCM decrypt (uses local demo keys in MVP).
+3. `merge_events.py` — merges rider + merchant + consumer events by `order_id`.
+4. `build_grid_time_dataset.py` — builds demand prediction rows (grid × 15-min window).
+5. `build_dispatch_dataset.py` — builds dispatch optimization candidate states.
+6. `export_buyer_dataset.py` — exports final JSON + CSV.
 
-#### Purpose
+**Key design decisions:**
 
-Validates license-gated encrypted access before real Seal integration.
+- `grid_index` (0–15 integer) included as categorical feature — prevents LightGBM from treating 16 grids identically despite 30% demand variation.
+- `rider_session_orders` tracks cumulative per-rider orders for `fairness_score`.
+- `grid_demand_map` per rider enables `demand_balance_score` (was previously a constant).
+- Temporal train/val split (85% train / 15% val) prevents future data leakage.
 
-#### Inputs
+**Outputs:**
 
-```text
-../walrus-uploader/output/keys.json
-../walrus-uploader/output/upload_results.json
-../license-flow/output/data_licenses.json
-../walrus-uploader/output/mock-walrus/*.bin
+```
+aggregator/output/demand_prediction_dataset.json
+aggregator/output/demand_prediction_dataset.csv
+aggregator/output/dispatch_dataset.json
 ```
 
-#### Outputs
+---
 
-```text
-seal-mock/output/access_results.json
-seal-mock/output/rejected_access_attempts.json
+### `ai-agent/`
+
+#### `demand_prediction/`
+
+Predicts `future_30min_order_count` per grid-time window.
+
+**Features (16):**
+
+```
+grid_index, order_count_t0, order_count_t_minus_1, order_count_t_minus_2,
+active_riders, available_riders, pending_orders,
+avg_accept_delay_min, avg_prep_time_min, avg_delivery_duration_min,
+merchant_count, merchant_density, traffic_level,
+weather_code, hour_of_day, day_of_week
 ```
 
-#### Mock Seal Behavior
+Categorical features: `grid_index`, `weather_code`, `hour_of_day`, `day_of_week`.
 
-`seal-mock` mirrors the intended access-control rule:
+**Model:**
 
-```text
-buyer owns DataLicense for asset
-  -> release key metadata
-  -> decrypt blob in memory
+1. **LightGBM** (`objective="poisson"`, `n_estimators=500`, early stopping at 50 rounds).
+2. **sklearn fallback** (`HistGradientBoostingRegressor(loss="poisson")`).
+3. Fails with explicit dependency error if neither is available.
+
+#### `dispatch_optimization/`
+
+Rule-based scoring for best-rider assignment.
+
+**Scoring formula:**
+
+```
+dispatch_score =
+  0.40 × proximity_score       (ETA-based: 1 - eta_min / MAX_ETA_MIN)
++ 0.18 × rider_idle_score      (1 - idle_time_min / MAX_IDLE_MIN)
++ 0.17 × fairness_score        (1 - session_orders / max_session_orders)
++ 0.25 × demand_balance_score  (1 - rider_grid_demand / max_grid_demand)
 ```
 
-Invalid access attempts do not receive key data.
+All scores are clamped to [0, 1]. `demand_balance_score` is per-rider (uses the demand in the rider's current grid, not a global constant).
 
-#### Key Functions
+---
 
-##### `verifyLicenseOwnership(context, buyerId, assetId)`
+## Data Flow Diagram
 
-Input:
-
-- buyer ID;
-- asset ID;
-- loaded mock protocol context.
-
-Output:
-
-```ts
-{
-  valid: boolean;
-  license_id?: string;
-  reason?: string;
-}
+```
+simulator/users/all_users.json  (640 wallets)
+         │
+         ▼
+simulator/output/raw_assets/    (640 DataAsset JSON files)
+         │
+         ▼
+walrus-uploader
+  ├── AES-256-GCM encrypt
+  ├── → Walrus blob (blob_id)
+  ├── → SealClient.encrypt (Seal EncryptedObject)
+  │      └── seal-access/output/seal_key_registry.json
+  └── → Sui register_data_asset (DataAsset object ID)
+         └── contracts/output/data_asset_registry.json
+         │
+         ▼
+seal-access (buyer decrypt)
+  ├── Mock: demo key → AES-GCM decrypt → decrypted_dataset.json
+  └── Real: seal_approve PTB → Seal key servers → AES key → AES-GCM decrypt
+         │
+         ▼
+aggregator/output/
+  ├── demand_prediction_dataset.csv
+  └── dispatch_dataset.json
+         │
+         ▼
+ai-agent/
+  ├── demand model training + inference
+  └── dispatch scoring + assignment
 ```
 
-Side effects:
-
-- none.
-
-Security assumptions:
-
-- license ownership is the access predicate;
-- referenced asset must exist.
-
-##### `releaseDecryptionKey(context, buyerId, assetId)`
-
-Input:
-
-- buyer ID;
-- asset ID.
-
-Output:
-
-- verification result;
-- key metadata only if verification succeeds.
-
-Side effects:
-
-- none.
-
-Security assumptions:
-
-- key data is never returned on invalid access.
-
-##### `decryptBlob(assetId, releasedKeyData)`
-
-Input:
-
-- asset ID;
-- released key metadata.
-
-Output:
-
-- decrypted JSON in memory;
-- data type;
-- order count.
-
-Side effects:
-
-- reads encrypted mock Walrus blob.
-
-Security assumptions:
-
-- decryption happens in memory only;
-- output files contain summaries, not plaintext datasets.
-
-#### Rejected Access Attempts
-
-The mock tests:
-
-- buyer without license;
-- fake asset ID;
-- fake buyer ID.
-
-Each rejected attempt records only buyer, asset, reason, and rejected flag.
-
-### `mars-app`
-
-#### Purpose
-
-Demonstrates the Mars V4 protocol state to users without real Sui, Walrus, Seal, or zkLogin integration.
-
-#### Key Files
-
-```text
-mars-app/components/DataDashboard.tsx
-mars-app/services/mockDataService.ts
-mars-app/app/rider.tsx
-mars-app/app/merchant.tsx
-mars-app/app/customer/index.tsx
-```
-
-#### DataDashboard
-
-`DataDashboard` receives:
-
-```ts
-{
-  role: "rider" | "merchant" | "consumer";
-  userId: string;
-}
-```
-
-It displays:
-
-- total DataAssets;
-- licenses sold;
-- USDC earned;
-- access grants;
-- asset list;
-- recent license history;
-- earnings summary;
-- Seal mock access-control status.
-
-#### Role-Specific Filtering
-
-`mockDataService` maps roles to data types:
-
-| Frontend role | Data type |
-| --- | --- |
-| Rider | `rider_mobility` |
-| Merchant | `merchant_operations` |
-| Customer | `consumer_behavior` |
-
-The service filters out anything outside the three V4 role-owned data types. It does not display `aggregated_delivery_data`.
-
-#### Mock JSON Integration
-
-The app reads local mock JSON outputs:
-
-- uploader results;
-- listings;
-- licenses;
-- reward distributions;
-- earnings;
-- Seal access results.
-
-This is intentionally local-only for demo mode. Future production UI should read indexed Sui/Walrus/Seal state through backend or client SDKs.
-
-### `demo-runner`
-
-#### Purpose
-
-Planned one-command orchestration for the full mock pipeline. It should wrap the same stage commands listed in this document.
-
-#### Pipeline Order
-
-`npm run demo` is expected to run:
-
-1. simulator generation;
-2. walrus-uploader mock upload;
-3. license-flow run;
-4. seal-mock run;
-5. consistency checks.
-
-#### Verification Checks
-
-The orchestration layer should validate:
-
-- 100 simulated orders;
-- 30 encrypted DataAssets;
-- 30 registrations;
-- at least 30 DataLicenses;
-- total distributions equal total buyer payments;
-- every valid license decrypts;
-- invalid access attempts are rejected.
-
-## JSON Schema Documentation
-
-### `all_orders.json`
-
-Array of `OrderEvent`.
-
-Important fields:
-
-- `order_id`: unique delivery order ID.
-- `customer_id`: customer identity.
-- `merchant_id`: merchant identity.
-- `rider_id`: rider identity.
-- `merchant_location`: pickup GPS point.
-- `delivery_location`: delivery GPS point.
-- `gps_track`: rider movement path, one point every 30 seconds.
-- `order_created_at`: unix ms timestamp.
-- `picked_up_at`: unix ms timestamp.
-- `delivered_at`: unix ms timestamp.
-- `delivery_time_seconds`: duration.
-- `distance_km`: route distance.
-- `order_amount_usdc`: mock order value.
-- `items`: ordered items.
-- `confirmations`: customer, merchant, and rider confirmation flags.
-
-### `upload_results.json`
-
-Array of encrypted DataAsset upload records.
-
-Important fields:
-
-- `asset_id`: role-specific asset ID.
-- `package_id`: source simulator package.
-- `contributor_id`: owner/contributor identity.
-- `blob_id`: mock Walrus blob ID.
-- `data_type`: role-owned data type.
-- `ciphertext_bytes`: encrypted blob size.
-- `key_id`: local key metadata reference.
-
-### `data_licenses.json`
-
-Array of mock DataLicenses.
-
-Important fields:
-
-- `license_id`: unique license ID.
-- `buyer_id`: AI buyer.
-- `asset_id`: licensed DataAsset.
-- `data_type`: licensed data type.
-- `usdc_paid`: purchase price.
-- `purchased_at`: unix ms timestamp.
-- `license_type`: currently `perpetual`.
-
-### `contributor_earnings.json`
-
-Aggregated reward summary.
-
-Important fields:
-
-- `contributors`: earnings by contributor ID.
-- `roles`: earnings by role.
-- `total_usdc`: amount earned.
-- `licenses_sold`: count of earning events.
-
-### `access_results.json`
-
-Successful access-control and decryption summaries.
-
-Important fields:
-
-- `buyer_id`: buyer that accessed data.
-- `asset_id`: accessed asset.
-- `license_id`: license used for access.
-- `blob_id`: encrypted blob.
-- `access_granted`: always true for this file.
-- `decrypted_successfully`: true when AES-GCM decrypt succeeds.
-- `data_type`: decrypted data type.
-- `order_count`: number of orders in decrypted payload.
-- `verified_at`: unix ms timestamp.
-
-This file intentionally does not include plaintext order data or key material.
-
-## Function-Level Reference
-
-### `encryptJson()`
-
-Located in `walrus-uploader/src/crypto.ts`.
-
-- Input: JSON-serializable data.
-- Output: ciphertext, key hex, IV hex, auth tag hex.
-- Side effects: none.
-- Security assumption: plaintext is encrypted before storage; key metadata is mock-local only.
-
-### `purchase_access()`
-
-Located in `contracts/mars/sources/data_license.move`.
-
-- Input: mutable DataAsset, exact USDC payment coin, Clock, TxContext.
-- Output: minted DataLicense object transferred to buyer.
-- Side effects: funds reward pool and records license.
-- Security assumption: buyer sends exact price; access is later gated by DataLicense ownership.
-
-### `distribute_reward()`
-
-Located in `contracts/mars/sources/data_asset.move`.
-
-- Input: mutable DataAsset and TxContext.
-- Output: USDC payouts to contributors.
-- Side effects: drains reward pool.
-- Security assumption: contributor weights sum to `10000`; current MVP assets use one contributor at `10000`.
-
-### `verifyLicenseOwnership()`
-
-Located in `seal-mock/src/verifier.ts`.
-
-- Input: context, buyer ID, asset ID.
-- Output: valid flag, license ID, or rejection reason.
-- Side effects: none.
-- Security assumption: valid DataLicense ownership is required before key release.
-
-### `decryptBlob()`
-
-Located in `seal-mock/src/decrypt.ts`.
-
-- Input: asset ID and released key metadata.
-- Output: decrypted JSON in memory plus payload shape summary.
-- Side effects: reads encrypted blob from mock Walrus.
-- Security assumption: caller obtained key data through verified access.
-
-## Mock vs Future Production Architecture
-
-| Layer | Current mock | Future production |
-| --- | --- | --- |
-| Storage | Mock Walrus `.bin` files | Real Walrus blobs |
-| Registration | Local JSON records | Real Sui `DataAsset` objects |
-| Licensing | Local JSON DataLicenses | Real Sui `DataLicense` objects |
-| Payments | Mock USDC accounting | Real USDC/Sui coin transfers |
-| Access control | `seal-mock` key release | Seal integration |
-| Identity | Mock IDs | zkLogin / wallet identities |
-| Frontend data | Local JSON imports | Indexed protocol state / SDK reads |
+---
+
+## Mock vs Production
+
+| Layer | Current (mock) | Production |
+|---|---|---|
+| Walrus storage | `MOCK_WALRUS=true`: SHA-256 blob IDs | Real Walrus testnet/mainnet CLI |
+| DataAsset registration | `register_data_assets.ts` PTB on testnet | Same script; mainnet package |
+| DataLicense purchase | `prepare_data_license.ts` + mock USDC | Real USDC; buyer wallet |
+| Seal key release | `MOCK_SEAL=true`: demo key file | Real Seal key servers via `seal_approve` |
+| Aggregator decrypt | Demo AES key from `local_demo_keys.json` | Read Seal-released key per license |
+| Buyer identity | Env var / CLI arg | Wallet signature (zkLogin or direct) |
+| Frontend data | Local JSON reads | Indexed Sui/Walrus/Seal state via SDK |
+
+---
 
 ## Security Model
 
-### Current Protections
+**Current protections:**
 
-- Plaintext simulator data is never uploaded to mock Walrus.
-- Encrypted blobs use AES-256-GCM.
-- Mock Walrus stores ciphertext only.
-- Mock Seal releases key metadata only for valid DataLicense ownership.
-- Seal mock decrypts data in memory and writes only access summaries.
-- Frontend dashboard displays summaries, not decrypted datasets.
+- Plaintext raw data is never uploaded to Walrus; only AES-256-GCM ciphertext is stored.
+- In real upload mode, the raw AES key is passed directly to `SealClient.encrypt` and never written to disk.
+- `seal_approve` cryptographically enforces that only the holder of a valid on-chain `DataLicense` can trigger key release.
+- `encryption_key.demo.json` is clearly labelled as demo-only and unsafe.
+- Private keys in `simulator/users/` are gitignored.
 
-### Mock Limitations
+**Mock limitations (intentional for MVP):**
 
-- Key metadata is stored locally in `keys.json`.
-- Buyer identity is a string, not a wallet signature.
-- DataAsset registration is JSON, not a live Sui object.
-- DataLicense ownership is JSON, not on-chain object ownership.
-- USDC payments are numeric accounting, not real coin movement.
+- `encryption_key.demo.json` contains the raw AES key in plaintext — this is the demo shortcut that real Seal replaces.
+- `MOCK_SEAL=true` skips the on-chain DataLicense check.
+- `aggregator` uses local demo keys rather than requesting them through Seal.
 
-These limitations are intentional for protocol validation. Each has a clear production replacement path.
+Each limitation has a direct production replacement path documented in `seal-access/src/sealClient.ts`.
 
-## Demo Walkthrough
-
-The planned one-command demo is:
-
-```bash
-cd demo-runner
-npm install
-npm run demo
-```
-
-During `npm run demo`, the system should:
-
-1. Generate delivery data in `simulator/output`.
-2. Encrypt role-specific datasets in `walrus-uploader`.
-3. Write mock Walrus ciphertext blobs.
-4. Write mock DataAsset registration records.
-5. List assets and simulate AI buyer purchases.
-6. Mint DataLicenses.
-7. Distribute rewards to contributors.
-8. Verify license ownership through Seal mock.
-9. Decrypt blobs in memory for valid license holders.
-10. Produce frontend-readable summaries.
-
-Expected current mock state:
-
-- 100 simulated orders
-- 30 encrypted DataAssets
-- 41 DataLicenses
-- 81 USDC mock buyer volume
-- 81 USDC mock rewards distributed
-- 41 successful access grants
-
-Current manual equivalent:
-
-```bash
-cd simulator && npm install && npm run generate
-cd ../walrus-uploader && npm install && npm run upload:mock
-cd ../license-flow && npm install && npm run run
-cd ../seal-mock && npm install && npm run run
-cd ../mars-app && npm install && npm run start
-```
+---
 
 ## Development Commands
 
-Run stages manually:
-
 ```bash
-cd simulator
-npm install
-npm run generate
+# Root workspace shortcuts
+pnpm simulator:wallets        # generate Sui wallets
+pnpm simulator:generate       # generate DataAssets
+pnpm walrus:upload            # encrypt + upload + register
+pnpm seal:decrypt:mock        # mock decrypt demo
+pnpm seal:typecheck           # TypeScript check for seal-access
+
+# Contracts
+cd contracts/mars
+sui move build
+sui move test
+pnpm --dir contracts register:data-assets
+pnpm --dir contracts prepare:data-license
+
+# AI pipeline
+scripts/run_mars_ai_pipeline.sh
 ```
-
-```bash
-cd walrus-uploader
-npm install
-npm run upload:mock
-```
-
-```bash
-cd license-flow
-npm install
-npm run run
-```
-
-```bash
-cd seal-mock
-npm install
-npm run run
-```
-
-```bash
-cd mars-app
-npm install
-npm run start
-```
-
-## Design Rationale
-
-Mars separates data generation, encryption, licensing, payment accounting, access control, and UI into independent stages. This makes it possible to validate each boundary:
-
-- Does generated data have enough realism?
-- Is plaintext kept out of storage?
-- Are ownership records unambiguous?
-- Are licenses minted only after purchase?
-- Are rewards economically conserved?
-- Are keys released only to licensed buyers?
-- Can users understand their assets and earnings?
-
-The mock pipeline answers those questions before the project takes on the complexity of production Sui, Walrus, Seal, zkLogin, and real stablecoin settlement.

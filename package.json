@@ -4,6 +4,13 @@
   "scripts": {
     "simulator:wallets": "pnpm --dir simulator wallets",
     "simulator:faucet": "pnpm --dir simulator faucet",
-    "simulator:generate": "pnpm --dir simulator generate"
+    "simulator:generate": "pnpm --dir simulator generate",
+    "walrus:build": "pnpm --dir walrus-uploader build",
+    "walrus:typecheck": "pnpm --dir walrus-uploader typecheck",
+    "walrus:upload": "pnpm --dir walrus-uploader upload",
+    "seal:build": "pnpm --dir seal-access build",
+    "seal:typecheck": "pnpm --dir seal-access typecheck",
+    "seal:decrypt": "pnpm --dir seal-access decrypt",
+    "seal:decrypt:mock": "pnpm --dir seal-access decrypt:mock"
   }
 }

@@ -1,0 +1,22 @@
+[
+  {
+    "user_id": "consumer_001",
+    "blob_id": "B-umt-VuT1Ph91ok4ArzKvjinaFlpkMpLftwPq057YY",
+    "data_asset_id": "0x9f76b51aa8d67e11ffe611347eefc9f76862691d001f1384ae5aba18e24bb5e6",
+    "data_type": "consumer_behavior",
+    "key_ref": "seal_registered_key:consumer_001",
+    "seal_id": "0x9f76b51aa8d67e11ffe611347eefc9f76862691d001f1384ae5aba18e24bb5e6",
+    "move_package_id": "0x32201b4b767ac91d40234e87c58ea7e8a68e06653dc23a6eba84e4adca6ad613",
+    "package_id": "0x4debd417b55934090560e79b5153fdb2729d0aebf6cd097aff52de0ba6bd8c70",
+    "threshold": 1,
+    "key_servers": [
+      {
+        "object_id": "0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98",
+        "weight": 1,
+        "aggregator_url": "https://seal-aggregator-testnet.mystenlabs.com"
+      }
+    ],
+    "encrypted_key_b64": "AE3r1Be1WTQJBWDnm1FT/bJynQrr9s0Jev9S3gumvYxwIJ92tRqo1n4R/+YRNH7vyfdoYmkdAB8ThK5auhjiS7XmAbASN4yfN5n7Wxpwg9p0pAaePD8ck94LJyEqV5nOHh6YAQEAtr4TC5phXBir6spZ5u8mzhQUc6OcPJytmjzkEbEICrU1kGmRSWyqINOQwUpKEXXrBXf/uOwgN2nzf9mXJy3h1CFg7bFf3eIXTrc49CqhmKkXjt0xXsXtmQiDdHwj/rAiAfu12saRUoLfRxMXXORMIQOOjXbOIrpkUpmCU0cALPJu7WCxc5XxRvFkTCeOD0dEJoCMpDS76Z9GXRJwhbL/oS8AMBLmGzVTq3PZkSTPQv++5q9T2iDKlvqLrKCe9rj5Xsi1vB3zPUcMB2U5T3ZfmRdeCwEA",
+    "registered_at": "2026-05-27T20:54:13.631Z"
+  }
+]

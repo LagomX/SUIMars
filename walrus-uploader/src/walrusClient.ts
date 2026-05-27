@@ -1,15 +1,14 @@
-import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config";
 
-const blobIdFromCiphertext = (ciphertext: Buffer): string =>
-  createHash("sha256").update(ciphertext).digest("hex");
-
 const execFileAsync = promisify(execFile);
+
+const deterministicMockBlobId = (bytes: Buffer): string =>
+  `mock_${createHash("sha256").update(bytes).digest("hex")}`;
 
 const findBlobId = (value: unknown): string | undefined => {
   if (typeof value !== "object" || value === null) {
@@ -49,43 +48,51 @@ const findBlobId = (value: unknown): string | undefined => {
   return undefined;
 };
 
-const parseWalrusBlobId = (stdout: string): string => {
-  const trimmed = stdout.trim();
-  if (!trimmed) {
+const parseWalrusStoreOutput = (stdout: string): string => {
+  const output = stdout.trim();
+  if (!output) {
     throw new Error("Walrus CLI returned empty output");
   }
 
   try {
-    const parsed = JSON.parse(trimmed) as unknown;
+    const parsed = JSON.parse(output) as unknown;
     const blobId = findBlobId(parsed);
     if (blobId) {
       return blobId;
     }
   } catch {
-    // Fall through to the text parser; some Walrus versions print human text
-    // even when JSON is requested.
+    // Some CLI versions may emit human-readable text even when JSON is requested.
   }
 
-  const textMatch =
-    trimmed.match(/blob[_ -]?id["':\s]+([A-Za-z0-9_-]{20,})/i) ??
-    trimmed.match(/\b([A-Za-z0-9_-]{40,})\b/);
+  const match =
+    output.match(/blob[_ -]?id["':\s]+([A-Za-z0-9_-]{20,})/i) ??
+    output.match(/\b([A-Za-z0-9_-]{40,})\b/);
 
-  if (textMatch?.[1]) {
-    return textMatch[1];
+  if (!match?.[1]) {
+    throw new Error(`Could not find a Walrus blob ID in CLI output: ${output.slice(0, 500)}`);
   }
 
-  throw new Error(`Could not find a blob ID in Walrus output: ${trimmed.slice(0, 500)}`);
+  return match[1];
 };
 
-const uploadWithWalrusCli = async (ciphertext: Buffer): Promise<string> => {
+export const uploadEncryptedBlob = async (bytes: Buffer): Promise<{ blobId: string }> => {
+  if (bytes.length === 0) {
+    throw new Error("Refusing to upload empty encrypted bytes");
+  }
+
+  if (config.mockWalrus) {
+    return { blobId: deterministicMockBlobId(bytes) };
+  }
+
   const tmpDir = path.join(config.outputDir, "tmp");
   await mkdir(tmpDir, { recursive: true });
   const tmpFile = path.join(tmpDir, `${randomUUID()}.bin`);
 
   try {
-    await writeFile(tmpFile, ciphertext);
+    await writeFile(tmpFile, bytes);
+
     const args = [
-      ...(config.walrusConfig ? ["--config", config.walrusConfig] : []),
+      ...(config.walrusConfigPath ? ["--config", config.walrusConfigPath] : []),
       "store",
       tmpFile,
       "--epochs",
@@ -99,27 +106,14 @@ const uploadWithWalrusCli = async (ciphertext: Buffer): Promise<string> => {
       maxBuffer: 10 * 1024 * 1024,
     });
 
-    return parseWalrusBlobId(stdout);
+    return { blobId: parseWalrusStoreOutput(stdout) };
+  } catch (error) {
+    throw new Error(
+      `Walrus upload failed. Confirm the Walrus CLI is installed, funded, and configured for testnet. ${
+        (error as Error).message
+      }`,
+    );
   } finally {
     await rm(tmpFile, { force: true });
   }
-};
-
-export const uploadEncryptedBlob = async (ciphertext: Buffer): Promise<string> => {
-  if (ciphertext.length === 0) {
-    throw new Error("Refusing to upload empty ciphertext");
-  }
-
-  if (config.walrusMock) {
-    const blobId = blobIdFromCiphertext(ciphertext);
-    const mockDir = path.join(config.outputDir, "mock-walrus");
-    await mkdir(mockDir, { recursive: true });
-    await writeFile(path.join(mockDir, `${blobId}.bin`), ciphertext);
-    return blobId;
-  }
-
-  // Walrus data is public, so callers must continue passing encrypted
-  // ciphertext only. The CLI path keeps the adapter stable while the SDK upload
-  // surface evolves.
-  return uploadWithWalrusCli(ciphertext);
 };

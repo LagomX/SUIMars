@@ -130,14 +130,8 @@ const earnings = safeRequire(
   () => require<ContributorEarnings>('../../license-flow/output/contributor_earnings.json'),
   { contributors: {}, roles: {} },
 );
-const accessResults = safeRequire(
-  () => require<AccessResult[]>('../../seal-mock/output/access_results.json'),
-  emptyArray<AccessResult>(),
-);
-const rejectedAccessAttempts = safeRequire(
-  () => require<RejectedAccessAttempt[]>('../../seal-mock/output/rejected_access_attempts.json'),
-  emptyArray<RejectedAccessAttempt>(),
-);
+const accessResults = emptyArray<AccessResult>();
+const rejectedAccessAttempts = emptyArray<RejectedAccessAttempt>();
 
 const roleDataType: Record<UserRole, DataType> = {
   rider: 'rider_mobility',

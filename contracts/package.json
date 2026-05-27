@@ -1,0 +1,19 @@
+{
+  "name": "mars-contract-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "register:data-assets": "tsx register_data_assets.ts",
+    "prepare:data-license": "tsx prepare_data_license.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.43.1",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.0.0"
+  }
+}
