@@ -5,6 +5,7 @@
   "scripts": {
     "register:data-assets": "tsx register_data_assets.ts",
     "prepare:data-license": "tsx prepare_data_license.ts",
+    "test:testnet": "tsx testnet_integration.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

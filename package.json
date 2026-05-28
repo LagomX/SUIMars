@@ -6,6 +6,7 @@
     "simulator:faucet": "pnpm --dir simulator faucet",
     "simulator:generate": "pnpm --dir simulator generate",
     "contracts:typecheck": "pnpm --dir contracts typecheck",
+    "contracts:test:testnet": "pnpm --dir contracts test:testnet",
     "contracts:license": "pnpm --dir contracts prepare:data-license",
     "walrus:build": "pnpm --dir walrus-uploader build",
     "walrus:typecheck": "pnpm --dir walrus-uploader typecheck",
