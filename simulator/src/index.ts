@@ -11,7 +11,7 @@ const main = async (): Promise<void> => {
   console.log(`Expected grid-time rows after aggregation: ${simulation.summary.grid_time_rows_expected}`);
   console.log(`Rider assets: ${simulation.summary.assets.rider_mobility}`);
   console.log(`Merchant assets: ${simulation.summary.assets.merchant_operations}`);
-  console.log(`Consumer assets: ${simulation.summary.assets.consumer_demand}`);
+  console.log(`Consumer assets: ${simulation.summary.assets.consumer_behavior}`);
   console.log("Output: simulator/output");
 };
 

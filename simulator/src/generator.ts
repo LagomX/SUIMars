@@ -1,9 +1,7 @@
 import type {
   ConsumerEvent,
   DataType,
-  EncryptedAssetEnvelope,
   Grid,
-  LicenseManifestEntry,
   Location,
   MerchantEvent,
   OrderRecord,
@@ -164,22 +162,6 @@ const createSingleOwnerAsset = (
   return asset;
 };
 
-const mockEncrypt = (asset: PersonalDataAsset): EncryptedAssetEnvelope => ({
-  asset_id: asset.asset_id,
-  owner_id: asset.owner_id,
-  owner: asset.owner,
-  role: asset.role,
-  data_type: asset.data_type,
-  blob_id: `blob_${asset.asset_id}`,
-  key_id: `mock_key_${asset.asset_id}`,
-  ciphertext_base64: Buffer.from(JSON.stringify(asset), "utf8").toString("base64"),
-  encryption: "mock-base64",
-  created_at: asset.created_at,
-});
-
-const manifestPath = (dataType: DataType, assetId: string): string =>
-  `mock_walrus/encrypted_assets/${dataType}/${assetId}.json`;
-
 const loadGeneratedUsers = async (usersPath = path.resolve(process.cwd(), "users", "all_users.json")): Promise<SimulatedUser[]> => {
   try {
     return JSON.parse(await readFile(usersPath, "utf8")) as SimulatedUser[];
@@ -260,7 +242,7 @@ export const generateSimulation = async (seed = 42): Promise<SimulationResult> =
           created_at: createdAtIso,
         });
 
-        pushAssetEvent(consumerAssets, createSingleOwnerAsset(consumer, "consumer_demand", createdForAsset), {
+        pushAssetEvent(consumerAssets, createSingleOwnerAsset(consumer, "consumer_behavior", createdForAsset), {
           order_id: orderId,
           timestamp: createdAtIso,
           grid_id: grid.grid_id,
@@ -327,23 +309,9 @@ export const generateSimulation = async (seed = 42): Promise<SimulationResult> =
     events: [...asset.events].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
   }));
 
-  const encryptedAssets = rawAssets.map(mockEncrypt);
-  const manifest: LicenseManifestEntry[] = encryptedAssets.map((asset) => ({
-    asset_id: asset.asset_id,
-    owner_id: asset.owner_id,
-    owner: asset.owner,
-    role: asset.role,
-    data_type: asset.data_type,
-    blob_id: asset.blob_id,
-    key_id: asset.key_id,
-    path: manifestPath(asset.data_type, asset.asset_id),
-  }));
-
   return {
     orders,
     rawAssets,
-    encryptedAssets,
-    manifest,
     summary: {
       generated_at: iso(Date.now()),
       start_time: iso(START_TIME),
@@ -355,7 +323,7 @@ export const generateSimulation = async (seed = 42): Promise<SimulationResult> =
       assets: {
         rider_mobility: riderAssets.size,
         merchant_operations: merchantAssets.size,
-        consumer_demand: consumerAssets.size,
+        consumer_behavior: consumerAssets.size,
       },
     },
   };

@@ -6,7 +6,6 @@ type CliOptions = {
   command: Command;
   userId?: string;
   walrusOutputDir?: string;
-  useUnlicensedSimulatorUser: boolean;
   help: boolean;
 };
 
@@ -14,7 +13,6 @@ const parseArgs = (): CliOptions => {
   const args = process.argv.slice(2);
   const opts: CliOptions = {
     command: "decrypt",
-    useUnlicensedSimulatorUser: false,
     help: false,
   };
 
@@ -32,9 +30,6 @@ const parseArgs = (): CliOptions => {
       case "--walrus-output":
         opts.walrusOutputDir = args[++i];
         break;
-      case "--use-unlicensed-simulator-user":
-        opts.useUnlicensedSimulatorUser = true;
-        break;
       default:
         throw new Error(`Unknown argument: ${arg}`);
     }
@@ -49,7 +44,6 @@ Mars Seal Access — real Seal testnet key registration and release.
 
 Usage:
   pnpm decrypt [-- --user-id consumer_001]
-  pnpm decrypt:denied [-- --user-id consumer_001]
 
 Inputs:
   contracts/output/data_asset_registry.json
@@ -77,7 +71,6 @@ const main = async (): Promise<void> => {
   const receipt = await decryptDatasetWithSealAccess({
     userId: args.userId,
     walrusOutputDir: args.walrusOutputDir,
-    useUnlicensedSimulatorUser: args.useUnlicensedSimulatorUser,
   });
 
   console.log("\nSeal access result");

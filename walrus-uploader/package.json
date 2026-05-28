@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "upload": "tsx src/index.ts"
+    "upload": "tsx src/index.ts",
+    "price-assets": "tsx src/priceAssets.ts"
   },
   "dependencies": {
     "@mysten/seal": "^1.1.3",

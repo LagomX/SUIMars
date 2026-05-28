@@ -5,13 +5,21 @@
     "simulator:wallets": "pnpm --dir simulator wallets",
     "simulator:faucet": "pnpm --dir simulator faucet",
     "simulator:generate": "pnpm --dir simulator generate",
+    "contracts:typecheck": "pnpm --dir contracts typecheck",
+    "contracts:license": "pnpm --dir contracts prepare:data-license",
     "walrus:build": "pnpm --dir walrus-uploader build",
     "walrus:typecheck": "pnpm --dir walrus-uploader typecheck",
     "walrus:upload": "pnpm --dir walrus-uploader upload",
+    "pricing:evaluate": "python3 ai-pricing/price_report.py",
+    "pricing:apply": "pnpm --dir walrus-uploader price-assets",
+    "pricing:testnet": "pnpm pricing:evaluate && pnpm pricing:apply",
     "seal:build": "pnpm --dir seal-access build",
     "seal:typecheck": "pnpm --dir seal-access typecheck",
     "seal:decrypt": "pnpm --dir seal-access decrypt",
-    "seal:decrypt:mock": "pnpm --dir seal-access decrypt:mock",
-    "aggregator:decrypt": "pnpm --dir seal-access batch-decrypt"
+    "aggregator:decrypt": "pnpm --dir seal-access batch-decrypt",
+    "aggregator:run": "python3 aggregator/main.py",
+    "ai:train": "python3 ai-agent/demand_prediction/train_demand_model.py && python3 ai-agent/demand_prediction/predict_demand.py && python3 ai-agent/dispatch_optimization/assign_rider.py",
+    "mars:clean": "scripts/mars_clean.sh",
+    "mars:e2e:testnet": "scripts/mars_e2e_testnet.sh"
   }
 }

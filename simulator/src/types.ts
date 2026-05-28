@@ -1,5 +1,5 @@
 export type Role = "rider" | "merchant" | "consumer";
-export type DataType = "rider_mobility" | "merchant_operations" | "consumer_demand";
+export type DataType = "rider_mobility" | "merchant_operations" | "consumer_behavior";
 
 export interface Location {
   lat: number;
@@ -93,35 +93,9 @@ export interface PersonalDataAsset<TEvent extends PersonalEvent = PersonalEvent>
   created_at: string;
 }
 
-export interface EncryptedAssetEnvelope {
-  asset_id: string;
-  owner_id: string;
-  owner: string;
-  role: Role;
-  data_type: DataType;
-  blob_id: string;
-  key_id: string;
-  ciphertext_base64: string;
-  encryption: "mock-base64";
-  created_at: string;
-}
-
-export interface LicenseManifestEntry {
-  asset_id: string;
-  owner_id: string;
-  owner: string;
-  role: Role;
-  data_type: DataType;
-  blob_id: string;
-  key_id: string;
-  path: string;
-}
-
 export interface SimulationResult {
   orders: OrderRecord[];
   rawAssets: PersonalDataAsset[];
-  encryptedAssets: EncryptedAssetEnvelope[];
-  manifest: LicenseManifestEntry[];
   summary: SimulationSummary;
 }
 
@@ -136,6 +110,6 @@ export interface SimulationSummary {
   assets: {
     rider_mobility: number;
     merchant_operations: number;
-    consumer_demand: number;
+    consumer_behavior: number;
   };
 }

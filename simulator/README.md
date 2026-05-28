@@ -8,9 +8,9 @@ Generated asset types:
 
 - `rider_mobility`
 - `merchant_operations`
-- `consumer_demand`
+- `consumer_behavior`
 
-Each asset is owned by one contributor Sui address and is written as plaintext under `simulator/output/raw_assets/` for local inspection. The simulator also writes mock encrypted envelopes under `simulator/output/mock_walrus/` so the aggregator can mimic licensed buyer access.
+Each asset is owned by one contributor Sui address and is written as plaintext under `simulator/output/raw_assets/`. Downstream encryption and storage are handled only by the Walrus uploader against real testnet infrastructure.
 
 ## Security Warning
 
@@ -39,8 +39,6 @@ Important outputs:
 - `simulator/users/all_users.json`
 - `simulator/output/orders.json`
 - `simulator/output/raw_assets/`
-- `simulator/output/mock_walrus/encrypted_assets/`
-- `simulator/output/license_manifest.json`
 - `simulator/output/simulation_summary.json`
 
 The default run generates 100 riders, 40 merchants, 500 consumers, 7 days, 16 grids, and 15-minute windows. The aggregator should produce about 10,752 grid-time rows from this data.

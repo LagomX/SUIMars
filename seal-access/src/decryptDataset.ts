@@ -5,7 +5,7 @@
  *   1. Load and validate walrus-uploader/output/upload_manifest.json
  *   2. Load walrus-uploader/output/encrypted/<user_id>.bin
  *   3. Build the DataLicense access policy
- *   4. Request the AES key via the Seal adapter (mock or real)
+ *   4. Request the AES key from real Seal key servers
  *   5. Decrypt the blob locally with AES-256-GCM
  *   6. Write output/decrypted_dataset.json
  *   7. Write output/seal_access_receipt.json
@@ -13,7 +13,7 @@
  * Security note:
  *   Decryption happens entirely on the buyer's local machine.
  *   In production, the decrypted plaintext should NEVER leave the buyer's
- *   environment.  output/decrypted_dataset.json is for demo purposes only.
+ *   environment.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -33,7 +33,7 @@ import {
   selectLicense,
   selectSealedKey,
 } from "./keyRegistry.js";
-import { loadLicensedBuyerSigner, loadUnlicensedSimulatorSigner } from "./signers.js";
+import { loadLicensedBuyerSigner } from "./signers.js";
 import type { DataAssetMetadata, SealAccessReceipt } from "./types.js";
 
 // ─── Decrypt options ────────────────────────────────────────────────────────
@@ -41,7 +41,6 @@ import type { DataAssetMetadata, SealAccessReceipt } from "./types.js";
 export interface DecryptOptions {
   userId?: string;
   walrusOutputDir?: string;
-  useUnlicensedSimulatorUser?: boolean;
 }
 
 // ─── AES-256-GCM decryption ────────────────────────────────────────────────
@@ -97,7 +96,6 @@ export const decryptAes256Gcm = (
  * output files.
  *
  * Throws on any validation or decryption failure.
- * In mock mode, also throws MockAccessDeniedError when MOCK_BUYER_HAS_LICENSE=false.
  */
 export const decryptDatasetWithSealAccess = async (
   opts: DecryptOptions = {},
@@ -110,9 +108,7 @@ export const decryptDatasetWithSealAccess = async (
   validateMetadata(metadata);  // defence-in-depth: walrusOutput already validates, but we check here too
   const sealedKey = selectSealedKey(await loadSealKeyRegistry(), dataAsset.data_asset_id);
   const license = selectLicense(await loadDataLicenseRegistry(), dataAsset.data_asset_id);
-  const buyerSigner = opts.useUnlicensedSimulatorUser
-    ? await loadUnlicensedSimulatorSigner()
-    : await loadLicensedBuyerSigner();
+  const buyerSigner = await loadLicensedBuyerSigner();
   const buyer = buyerSigner.getPublicKey().toSuiAddress();
 
   if (metadata.blob_id !== dataAsset.blob_id || sealedKey.blob_id !== dataAsset.blob_id) {
@@ -152,14 +148,12 @@ export const decryptDatasetWithSealAccess = async (
 
   if (!ivHex) {
     throw new Error(
-      "IV is missing from both the demo key file and the metadata. " +
-        "Ensure the encrypted blob was produced by walrus-uploader.",
+      "IV is missing from upload metadata. Ensure the encrypted blob was produced by walrus-uploader.",
     );
   }
   if (!authTagHex) {
     throw new Error(
-      "Auth tag is missing from both the demo key file and the metadata. " +
-        "Ensure the encrypted blob was produced by walrus-uploader.",
+      "Auth tag is missing from upload metadata. Ensure the encrypted blob was produced by walrus-uploader.",
     );
   }
 
@@ -184,8 +178,6 @@ export const decryptDatasetWithSealAccess = async (
   // ── Write output files ────────────────────────────────────────────────────
   const decryptedOutputPath = path.join(config.outputDir, "decrypted_dataset.json");
 
-  // NOTE: In production, decrypted plaintext should never be written to disk.
-  //       This output is for hackathon demo purposes only.
   await writeFile(
     decryptedOutputPath,
     `${JSON.stringify(decryptedJson, null, 2)}\n`,

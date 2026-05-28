@@ -24,7 +24,6 @@ export const config = {
   outputDir: path.join(moduleRoot, "output"),
   walrusOutputDir: path.join(projectRoot, "walrus-uploader", "output"),
   contractsOutputDir: path.join(projectRoot, "contracts", "output"),
-  simulatorUsersPath: path.join(projectRoot, "simulator", "users", "all_users.json"),
 
   // ── Real Seal / Sui settings ──────────────────────────────────────────────
   suiRpcUrl: process.env.SUI_RPC_URL ?? "https://fullnode.testnet.sui.io:443",
@@ -33,7 +32,7 @@ export const config = {
    * Deployed Mars Move package ID on Sui testnet.
    * If unset (undefined or empty), seal-access reads contracts/mars/Published.toml.
    */
-  sealPackageId: process.env.SEAL_PACKAGE_ID ?? undefined,
+  sealPackageId: process.env.SEAL_PACKAGE_ID ?? process.env.SUI_PACKAGE_ID ?? undefined,
 
   sealThreshold: Number.parseInt(process.env.SEAL_THRESHOLD ?? "1", 10),
 

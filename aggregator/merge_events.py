@@ -14,7 +14,7 @@ def merge_events_by_order(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
         data_type = asset["data_type"]
         for event in asset["events"]:
             order = orders.setdefault(event["order_id"], {"order_id": event["order_id"]})
-            if data_type == "consumer_demand":
+            if data_type == "consumer_behavior":
                 order.update(
                     {
                         "consumer_id": event["consumer_id"],

@@ -72,7 +72,7 @@ const dataTypeByRole: Record<Role, string> = {
 const acceptedRawDataTypesByRole: Record<Role, string[]> = {
   rider: ["rider_mobility"],
   merchant: ["merchant_operations"],
-  consumer: ["consumer_behavior", "consumer_demand"],
+  consumer: ["consumer_behavior"],
 };
 
 const assertReadable = async (filePath: string, label: string): Promise<void> => {

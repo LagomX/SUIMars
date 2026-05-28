@@ -1,5 +1,8 @@
 import dotenv from "dotenv";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const moduleRoot = path.resolve(__dirname, "..");
 export const projectRoot = path.resolve(moduleRoot, "..");
@@ -42,7 +45,6 @@ export const config = {
   contractsOutputDir: path.join(projectRoot, "contracts", "output"),
   sealAccessOutputDir: path.join(projectRoot, "seal-access", "output"),
   marsPackageTomlPath: path.join(projectRoot, "contracts", "mars", "Published.toml"),
-  mockWalrus: boolFromEnv(process.env.MOCK_WALRUS, false),
   walrusCliPath: process.env.WALRUS_CLI_PATH ?? "walrus",
   walrusContext: process.env.WALRUS_CONTEXT ?? "testnet",
   walrusEpochs: positiveIntFromEnv(process.env.WALRUS_EPOCHS, 2),
@@ -50,7 +52,7 @@ export const config = {
   maxUploads: process.env.MAX_UPLOADS ? positiveIntFromEnv(process.env.MAX_UPLOADS, 0) : undefined,
   suiRpcUrl: process.env.SUI_RPC_URL ?? "https://fullnode.testnet.sui.io:443",
   suiPrivateKey: process.env.SUI_PRIVATE_KEY,
-  sealPackageId: process.env.SEAL_PACKAGE_ID,
+  sealPackageId: process.env.SEAL_PACKAGE_ID ?? process.env.SUI_PACKAGE_ID,
   sealThreshold: positiveIntFromEnv(process.env.SEAL_THRESHOLD, 1),
   sealKeyServerObjectId:
     process.env.SEAL_KEY_SERVER_OBJECT_ID ??

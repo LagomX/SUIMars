@@ -35,10 +35,9 @@ const projectRoot = path.resolve(contractsRoot, "..");
 
 const config = {
   network: process.env.SUI_NETWORK ?? "testnet",
-  adminCapId: process.env.ADMIN_CAP_ID,
   usdcTreasuryCapId: process.env.USDC_TREASURY_CAP_ID,
-  priceRaw: BigInt(process.env.DATA_LICENSE_PRICE_RAW ?? "1000000"),
   registryPath: path.resolve(contractsRoot, "output", "data_asset_registry.json"),
+  pricingReportPath: path.resolve(projectRoot, "ai-pricing/output/pricing_report.json"),
   outputPath: path.resolve(contractsRoot, "output", "data_license_registry.json"),
   usersPath: path.resolve(projectRoot, "simulator/users/all_users.json"),
   buyerPrivateKey: process.env.BUYER_PRIVATE_KEY,
@@ -52,6 +51,31 @@ const requireObjectId = (value: string | undefined, label: string): string => {
     throw new Error(`${label} is required`);
   }
   return value;
+};
+
+type PricingReport = {
+  assets: Array<{
+    owner_id: string;
+    data_type: string;
+    quality_score: number;
+    price_micro_usdc: number;
+  }>;
+};
+
+const selectPricing = (
+  report: PricingReport,
+  assetRecord: DataAssetRegistryRecord,
+): { quality_score: number; price_micro_usdc: number } => {
+  const pricing = report.assets.find(
+    (record) => record.owner_id === assetRecord.user_id && record.data_type === assetRecord.data_type,
+  );
+  if (!pricing) {
+    throw new Error(`No pricing report record for ${assetRecord.user_id}:${assetRecord.data_type}`);
+  }
+  if (!Number.isInteger(pricing.price_micro_usdc) || pricing.price_micro_usdc <= 0) {
+    throw new Error(`Invalid price_micro_usdc for ${assetRecord.user_id}:${assetRecord.data_type}`);
+  }
+  return pricing;
 };
 
 const findCreatedObjectId = (objectChanges: unknown, objectTypeSuffix: string): string => {
@@ -114,7 +138,6 @@ const ensureGas = async (
 
 const main = async (): Promise<void> => {
   const packageId = await parsePublishedPackageId(contractsRoot);
-  const adminCapId = requireObjectId(config.adminCapId, "ADMIN_CAP_ID");
   const treasuryCapId = requireObjectId(config.usdcTreasuryCapId, "USDC_TREASURY_CAP_ID");
 
   // Only processes the first DataAsset — sufficient for MVP demo where one asset is uploaded.
@@ -124,6 +147,8 @@ const main = async (): Promise<void> => {
   }
 
   const users = await readJson<SimulatorUser[]>(config.usersPath);
+  const pricing = selectPricing(await readJson<PricingReport>(config.pricingReportPath), assetRecord);
+  const priceRaw = BigInt(pricing.price_micro_usdc);
   const ownerUser = users.find((user) => user.user_id === assetRecord.user_id);
   if (!ownerUser?.private_key) {
     throw new Error(`Could not find simulator private key for ${assetRecord.user_id}`);
@@ -136,18 +161,9 @@ const main = async (): Promise<void> => {
 
   await ensureGas(client, adminBuyer, ownerSigner.getPublicKey().toSuiAddress());
 
-  const priceTx = new Transaction();
-  priceTx.moveCall({
-    target: `${packageId}::data_asset::set_quality_and_price`,
-    arguments: [
-      priceTx.object(adminCapId),
-      priceTx.object(assetRecord.data_asset_id),
-      priceTx.pure.u64(90),
-      priceTx.pure.u64(config.priceRaw),
-    ],
-  });
-  await execute(client, adminBuyer, priceTx);
-  console.log(`Set DataAsset price to ${config.priceRaw.toString()} raw USDC`);
+  console.log(
+    `Using AI pricing for ${assetRecord.user_id}: quality=${pricing.quality_score}, price=${priceRaw.toString()} micro USDC`,
+  );
 
   const listTx = new Transaction();
   listTx.moveCall({
@@ -165,7 +181,7 @@ const main = async (): Promise<void> => {
     target: `${packageId}::usdc::mint_for_testing`,
     arguments: [
       purchaseTx.object(treasuryCapId),
-      purchaseTx.pure.u64(config.priceRaw),
+      purchaseTx.pure.u64(priceRaw),
     ],
   });
   purchaseTx.moveCall({

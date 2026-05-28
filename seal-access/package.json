@@ -7,7 +7,6 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "decrypt": "tsx src/index.ts decrypt",
-    "decrypt:denied": "tsx src/index.ts decrypt --use-unlicensed-simulator-user",
     "batch-decrypt": "tsx src/batchDecrypt.ts"
   },
   "dependencies": {

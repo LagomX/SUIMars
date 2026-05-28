@@ -12,7 +12,6 @@ const printUsage = (): void => {
   console.log("  WALRUS_CONTEXT=testnet");
   console.log("  WALRUS_EPOCHS=2");
   console.log("  MAX_UPLOADS=1");
-  console.log("  MOCK_WALRUS=true");
   console.log("  SUI_PRIVATE_KEY=<optional testnet key; defaults to active Sui CLI wallet>");
   console.log("  SEAL_THRESHOLD=1");
 };

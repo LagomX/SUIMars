@@ -35,6 +35,7 @@ simulator/wallets/generated/*.json
 walrus-uploader/output/
 seal-access/output/
 aggregator/output/
+ai-pricing/output/
 ai-agent/demand_prediction/output/
 ai-agent/dispatch_optimization/output/
 publish-testnet*.json

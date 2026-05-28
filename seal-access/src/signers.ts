@@ -15,12 +15,6 @@ import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { config } from "./config.js";
 
-type SimulatorUser = {
-  user_id: string;
-  sui_address: string;
-  private_key: string;
-};
-
 const readJson = async <T>(filePath: string): Promise<T> =>
   JSON.parse(await readFile(filePath, "utf8")) as T;
 
@@ -73,13 +67,4 @@ export const loadLicensedBuyerSigner = async (): Promise<Ed25519Keypair> => {
     return signerFromPrivateKey(config.buyerPrivateKey);
   }
   return signerFromSuiKeystore();
-};
-
-export const loadUnlicensedSimulatorSigner = async (): Promise<Ed25519Keypair> => {
-  const users = await readJson<SimulatorUser[]>(config.simulatorUsersPath);
-  const candidate = users.find((user) => user.private_key && user.sui_address?.startsWith("0x"));
-  if (!candidate) {
-    throw new Error(`No simulator user with private_key found in ${config.simulatorUsersPath}`);
-  }
-  return signerFromPrivateKey(candidate.private_key);
 };

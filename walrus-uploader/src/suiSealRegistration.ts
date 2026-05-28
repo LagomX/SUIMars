@@ -170,13 +170,13 @@ const findCreatedDataAssetId = (transaction: TxWithEffectsAndTypes, packageId: s
 const registerDataAsset = async (
   client: SuiGrpcClient,
   signer: Ed25519Keypair,
-  packageId: string,
+  packageIds: PackageIds,
   manifest: UploadManifestRecord,
 ): Promise<string> => {
   const tx = new Transaction();
   const contributorObjects = manifest.contributors.map((contributor) =>
     tx.moveCall({
-      target: `${packageId}::data_asset::new_contributor`,
+      target: `${packageIds.publishedAt}::data_asset::new_contributor`,
       arguments: [
         tx.pure.address(contributor.addr),
         tx.pure.vector("u8", textBytes(contributor.role)),
@@ -186,12 +186,12 @@ const registerDataAsset = async (
   );
 
   const contributors = tx.makeMoveVec({
-    type: `${packageId}::data_asset::Contributor`,
+    type: `${packageIds.publishedAt}::data_asset::Contributor`,
     elements: contributorObjects,
   });
 
   tx.moveCall({
-    target: `${packageId}::data_asset::register_data_asset`,
+    target: `${packageIds.publishedAt}::data_asset::register_data_asset`,
     arguments: [
       tx.pure.vector("u8", textBytes(manifest.blob_id)),
       contributors,
@@ -217,7 +217,7 @@ const registerDataAsset = async (
     );
   }
 
-  return findCreatedDataAssetId(transaction as TxWithEffectsAndTypes, packageId);
+  return findCreatedDataAssetId(transaction as TxWithEffectsAndTypes, packageIds.originalId);
 };
 
 const sealKeyServerConfigs = () => [
@@ -289,7 +289,7 @@ export const registerUploadedDatasetsOnSuiAndSeal = async (
   const sealedKeys: SealKeyRegistryRecord[] = [];
 
   for (const input of inputs) {
-    const dataAssetId = await registerDataAsset(client, signer, packageIds.publishedAt, input.manifest);
+    const dataAssetId = await registerDataAsset(client, signer, packageIds, input.manifest);
     dataAssets.push({
       user_id: input.manifest.user_id,
       blob_id: input.manifest.blob_id,

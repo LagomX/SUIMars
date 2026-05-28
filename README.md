@@ -1,218 +1,127 @@
 # Mars
 
-**Mars turns real-world activity into contributor-owned AI datasets.**
+Mars turns contributor-owned real-world activity into licensed AI datasets.
 
-Riders, merchants, and consumers own their delivery data. AI buyers license access on-chain. No one — including Mars — can read the raw datasets without a valid `DataLicense`.
+The current repository runs the protocol against Sui testnet, Walrus testnet,
+Seal key servers, and the Mars TestUSDC Move module. The simulator still
+generates synthetic delivery activity for riders, merchants, and consumers; all
+infrastructure after simulation is real testnet infrastructure.
 
-## Mars Lifecycle
+## Protocol Flow
 
-First: The `simulator` creates role-separated personal delivery data owned by contributors; data stays encrypted by default.
+1. Generate Sui testnet-compatible contributor wallets.
+2. Generate structured delivery events and PersonalDataAssets.
+3. Encrypt each dataset locally with AES-256-GCM.
+4. Upload ciphertext to Walrus testnet and receive real Walrus blob IDs.
+5. Register DataAssets on Sui testnet.
+6. Score and price DataAssets with the protocol-side AI pricing agent.
+7. Submit prices to Sui testnet with `set_quality_and_price`.
+8. List assets, mint TestUSDC, and purchase a real DataLicense.
+9. Request the AES key through Seal using `data_license::seal_approve`.
+10. Decrypt licensed Walrus blobs locally.
+11. Aggregate licensed data into AI-ready datasets.
+12. Train demand and dispatch models.
 
-Then: `walrus-uploader` encrypts each dataset with AES-256-GCM, uploads ciphertext blobs to Walrus, and registers a contributor-owned `DataAsset` on Sui.
-
-Next: Buyers acquire on-chain `DataLicense`s; `seal-access` (via `seal_approve`) releases AES keys only to valid license holders, and the `aggregator` merges those licensed rider/merchant/consumer events into AI-ready datasets.
-
-Finally: `ai-agent` trains ETA, demand, and dispatch models on the licensed datasets, and `mars-app` surfaces contributor assets and USDC earnings.
-
-## Modules
-
-**`simulator/`**
-Generates role-separated delivery event data for riders, merchants, and consumers using Sui testnet wallets.
-
-**`walrus-uploader/`**
-Encrypts raw datasets, uploads ciphertext blobs to Walrus, and registers contributor-owned `DataAsset` objects on Sui.
-
-**`contracts/mars/`**
-Sui Move contracts for DataAsset registration, DataLicense purchase, and on-chain settlement with Seal-secured access.
-
-**`seal-access/`**
-Releases AES keys only when a buyer holds a valid on-chain `DataLicense`, with both mock and real Seal modes.
-
-**`aggregator/`**
-Joins licensed rider, merchant, and consumer events into AI-ready datasets for forecasting and dispatch.
-
-**`ai-agent/`**
-Trains ETA, demand, and dispatch models on licensed delivery signals that do not exist in public internet corpora.
-
-**`mars-app/`**
-Mobile dashboard showing contributor-owned assets, licenses sold, and USDC earnings.
-
-## Developer Quick Start
-
-### Prerequisites
+## Prerequisites
 
 ```bash
-# Node / pnpm
-node >= 20
-pnpm >= 9
-
-# Python (for AI pipeline)
-/usr/bin/python3   # macOS system Python 3.9 — has scikit-learn
-# or
-pip3 install -r aggregator/requirements.txt
-pip3 install -r ai-agent/requirements.txt
+node --version   # >= 20
+pnpm --version   # >= 9
+python3 --version
+sui --version
+walrus --version
 ```
 
----
-
-### 1. Simulator — Generate real-world delivery event data
+Install dependencies:
 
 ```bash
-pnpm simulator:wallets    # create 100 riders, 40 merchants, 500 consumers (real Ed25519 keypairs)
-pnpm simulator:generate   # produce 640 PersonalDataAssets + 16 043 delivery orders
+pnpm install
+pnpm --dir simulator install
+pnpm --dir walrus-uploader install
+pnpm --dir seal-access install
+pnpm --dir contracts install
+python3 -m pip install -r aggregator/requirements.txt
+python3 -m pip install -r ai-agent/requirements.txt
 ```
 
-Each `PersonalDataAsset` is role-separated (`rider_mobility`, `merchant_operations`, `consumer_demand`) and embeds the raw delivery events that belong to that wallet.
-Private keys are written to `simulator/users/*.json` (gitignored — never use for mainnet).
+## Testnet Configuration
 
----
-
-### 2. Walrus — Encrypt and store datasets as decentralized blobs
+Copy and fill the real testnet env examples:
 
 ```bash
-# Mock mode — no Walrus CLI needed (uses local SHA-256 blob IDs)
-MOCK_WALRUS=true pnpm walrus:upload
-
-# Real Walrus testnet
-pnpm walrus:upload
+cp walrus-uploader/.env.example walrus-uploader/.env
+cp seal-access/.env.example seal-access/.env
+cp contracts/.env.example contracts/.env
 ```
 
-For each DataAsset this command:
-- Encrypts the raw event JSON with **AES-256-GCM** (raw key never written to disk)
-- Uploads the ciphertext blob to Walrus → receives a `blob_id`
-- Wraps the AES key with **Seal** (`SealClient.encrypt`) → stores the encrypted key bundle
-
----
-
-### 3. Sui — Register contributor-owned DataAssets and DataLicenses
+Required for the purchase flow:
 
 ```bash
-# DataAssets are registered automatically by walrus:upload via register_data_asset PTB.
-# On testnet, run the full on-chain flow:
-
-cd contracts/mars && sui move test          # verify 21/21 tests pass
-sui client publish --json > ../../publish-testnet.json
-
-pnpm walrus:upload                          # registers DataAsset objects on-chain
-
-pnpm --dir walrus-uploader chain:price-assets   # AI Agent: set_quality_and_price (AdminCap)
-pnpm --dir walrus-uploader chain:list-assets    # Contributor: set_for_sale(true)
-
-pnpm --dir walrus-uploader chain:mint-usdc      # mint TestUSDC for the buyer
-pnpm --dir contracts prepare:data-license       # AI buyer: purchase_access → DataLicense minted
-
-pnpm --dir walrus-uploader chain:distribute-rewards  # anyone: distribute_reward by weight_bps
+ADMIN_CAP_ID=0x...
+USDC_TREASURY_CAP_ID=0x...
+BUYER_PRIVATE_KEY=suiprivkey... # optional if active Sui CLI wallet is the buyer/admin
 ```
 
-See [`TESTNET.md`](./TESTNET.md) for the full deployment runbook.
+Walrus must be installed, configured for testnet, and funded. Sui must have a
+funded testnet signer. Seal settings default to the public testnet key server.
 
----
-
-### 4. Seal — Release AES keys only to licensed buyers
-
-**Local demo — no Sui deployment needed:**
+## Validate
 
 ```bash
-pnpm seal:decrypt:mock
+pnpm --dir simulator exec tsc --noEmit
+pnpm walrus:typecheck
+pnpm seal:typecheck
+pnpm contracts:typecheck
+
+cd contracts/mars
+sui move build
+sui move test
 ```
 
-Simulates the `DataLicense` ownership check using a local demo AES key.
-To verify the access-denied path:
+## Run The Real Testnet Pipeline
+
+For a one-command run:
 
 ```bash
-MOCK_BUYER_HAS_LICENSE=false pnpm seal:decrypt:mock
-```
-
-**Real Seal mode — after testnet deployment:**
-
-```bash
-MOCK_SEAL=false pnpm seal:decrypt
-```
-
-Builds a PTB calling `data_license::seal_approve` on Sui. Seal key servers dry-run the PTB — if the caller holds a valid `DataLicense`, the AES key is released and the Walrus blob is decrypted locally.
-
----
-
-### 5. Aggregator — Merge licensed events into AI-ready datasets
-
-```bash
-python3 aggregator/main.py                                   # merge licensed rider/merchant/consumer event data
-```
-
-This step joins licensed rider, merchant, and consumer events by `order_id` and produces the dataset used by downstream AI models.
-
----
-
-### 6. AI Training — Train ETA, demand, and dispatch models locally
-
-```bash
-scripts/run_mars_ai_pipeline.sh
+pnpm mars:e2e:testnet
 ```
 
 Or step by step:
 
 ```bash
-python3 aggregator/main.py                                   # merge licensed rider/merchant/consumer events
-python3 ai-agent/demand_prediction/train_demand_model.py     # LightGBM demand model (Poisson objective)
-python3 ai-agent/demand_prediction/predict_demand.py         # per-grid 30-min demand forecast
-python3 ai-agent/dispatch_optimization/assign_rider.py       # best-rider dispatch scoring
+pnpm simulator:wallets
+pnpm simulator:generate
+pnpm walrus:upload
+pnpm pricing:evaluate
+pnpm pricing:apply
+pnpm contracts:license
+pnpm seal:decrypt
+pnpm aggregator:run
+pnpm ai:train
 ```
-
-## Testnet Deployment
-
-See [`TESTNET.md`](./TESTNET.md) for the full step-by-step runbook covering Sui publish, Walrus upload, on-chain DataAsset registration, AI Agent pricing, contributor listing, DataLicense purchase, Seal-gated decrypt, and reward distribution.
 
 ## Outputs
 
 | Path | Contents |
 |---|---|
-| `simulator/output/raw_assets/` | 640 role-separated DataAsset JSON files |
-| `simulator/output/orders.json` | 16 043 simulated delivery orders |
-| `walrus-uploader/output/upload_manifest.json` | Blob IDs + AES-256-GCM metadata |
-| `contracts/output/data_asset_registry.json` | Sui DataAsset object IDs |
+| `simulator/output/orders.json` | Synthetic delivery orders |
+| `simulator/output/raw_assets/` | Role-separated PersonalDataAssets |
+| `ai-pricing/output/pricing_report.json` | Deterministic quality scores and prices |
+| `ai-pricing/output/pricing_apply_receipt.json` | Sui pricing transaction summary |
+| `walrus-uploader/output/upload_manifest.json` | Real Walrus blob IDs and AES metadata |
+| `contracts/output/data_asset_registry.json` | Sui testnet DataAsset object IDs |
+| `contracts/output/data_license_registry.json` | Sui testnet DataLicense object IDs |
 | `seal-access/output/seal_key_registry.json` | Seal-encrypted AES key bundles |
-| `seal-access/output/seal_access_receipt.json` | Access grant / denial receipt |
-| `seal-access/output/decrypted_dataset.json` | Decrypted plaintext (demo only) |
-| `aggregator/output/demand_prediction_dataset.csv` | AI training data (grid × time) |
+| `seal-access/output/seal_access_receipt.json` | Real Seal access result |
+| `seal-access/output/decrypted_dataset.json` | Licensed plaintext written locally for the buyer |
+| `aggregator/output/demand_prediction_dataset.csv` | AI demand training data |
 | `aggregator/output/dispatch_dataset.json` | Dispatch candidate states |
 | `ai-agent/demand_prediction/output/demand_model.pkl` | Trained demand model |
-| `ai-agent/demand_prediction/output/demo_grid_predictions.json` | Demand forecast |
-| `ai-agent/dispatch_optimization/output/sample_assignment.json` | Best-rider assignment |
-
-## Simulation Scale (defaults)
-
-- 100 rider wallets / 40 merchant wallets / 500 consumer wallets
-- 7 days × 16 grids × 96 windows/day = 10 752 demand prediction rows
-- ~16 043 orders
-- 640 personal DataAssets
-
-## Contracts
-
-```bash
-cd contracts/mars
-sui move build
-sui move test   # 21/21 tests pass
-```
-
-The `seal_approve` entry point in `data_license.move` is the on-chain gate Seal key servers call before releasing the AES decryption key. It verifies:
-1. The Seal IBE identity matches this specific DataAsset (`bcs::to_bytes(object::id(asset)) == id`).
-2. The caller holds a valid `DataLicense` for this asset (`license.data_asset_id` match + `license.buyer == ctx.sender()` + perpetual type).
-
-Test coverage includes `seal_approve` happy path, wrong-asset-id abort, and non-buyer-caller abort (21 tests total across `data_asset`, `data_license`, `escrow`, and `settlement`).
+| `ai-agent/demand_prediction/output/demo_grid_predictions.json` | Demand forecast output |
+| `ai-agent/dispatch_optimization/output/sample_assignment.json` | Dispatch assignment output |
 
 ## Security Notes
 
-- Client-side encryption protects raw data before upload.
-- Walrus stores only ciphertext; no plaintext datasets are uploaded.
-- Seal-gated access releases AES keys only to valid on-chain `DataLicense` holders.
-- Contributors keep ownership of their DataAssets and license access on-chain.
-
-## Tech Stack
-
-- **Sui Move** — DataAsset, DataLicense, Escrow, Settlement, USDC contracts
-- **Walrus** — Decentralized blob storage for encrypted DataAssets
-- **Seal** — Threshold key management + DataLicense-gated decryption
-- **TypeScript / tsx** — Simulator, Walrus uploader, Seal access, contract scripts
-- **Python** — Aggregator + AI pipeline
-- **LightGBM / scikit-learn** — Demand forecasting
-- **Expo / React Native** — Ownership dashboard
+Raw AES keys are never written to disk. They are generated in memory by the
+Walrus uploader, wrapped with Seal, and later released only when Seal verifies a
+real Sui testnet DataLicense through `data_license::seal_approve`.

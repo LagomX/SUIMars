@@ -7,8 +7,8 @@ the resulting files — no cryptographic operations happen here.
 
 Expected layout after batch decrypt:
     aggregator/output/buyer_workspace/decrypted_assets/
-        consumer_demand/
-            asset_consumer_001_consumer_demand.json
+        consumer_behavior/
+            asset_consumer_001_consumer_behavior.json
             ...
         merchant_operations/
             asset_merchant_001_merchant_operations.json

@@ -1,14 +1,11 @@
 import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "./config.js";
 
 const execFileAsync = promisify(execFile);
-
-const deterministicMockBlobId = (bytes: Buffer): string =>
-  `mock_${createHash("sha256").update(bytes).digest("hex")}`;
 
 const findBlobId = (value: unknown): string | undefined => {
   if (typeof value !== "object" || value === null) {
@@ -80,10 +77,6 @@ export const uploadEncryptedBlob = async (bytes: Buffer): Promise<{ blobId: stri
     throw new Error("Refusing to upload empty encrypted bytes");
   }
 
-  if (config.mockWalrus) {
-    return { blobId: deterministicMockBlobId(bytes) };
-  }
-
   const tmpDir = path.join(config.outputDir, "tmp");
   await mkdir(tmpDir, { recursive: true });
   const tmpFile = path.join(tmpDir, `${randomUUID()}.bin`);
@@ -109,7 +102,8 @@ export const uploadEncryptedBlob = async (bytes: Buffer): Promise<{ blobId: stri
     return { blobId: parseWalrusStoreOutput(stdout) };
   } catch (error) {
     throw new Error(
-      `Walrus upload failed. Confirm the Walrus CLI is installed, funded, and configured for testnet. ${
+      `Walrus testnet upload failed. Confirm WALRUS_CLI_PATH points to the Walrus CLI, ` +
+        `the CLI is configured for testnet context "${config.walrusContext}", and the Walrus wallet is funded. ${
         (error as Error).message
       }`,
     );

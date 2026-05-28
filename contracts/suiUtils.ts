@@ -67,11 +67,11 @@ export const loadSigner = async (privateKey?: string): Promise<Ed25519Keypair> =
 // ─── Package ID helpers ───────────────────────────────────────────────────────
 
 /**
- * Read the published package ID from PACKAGE_ID env var or Published.toml.
+ * Read the published package ID from SUI_PACKAGE_ID/PACKAGE_ID env var or Published.toml.
  * @param contractsRoot  Absolute path to the contracts/ directory.
  */
 export const parsePublishedPackageId = async (contractsRoot: string): Promise<string> => {
-  const envId = process.env.PACKAGE_ID;
+  const envId = process.env.SUI_PACKAGE_ID ?? process.env.PACKAGE_ID;
   if (envId?.startsWith("0x")) {
     return envId;
   }
@@ -83,7 +83,7 @@ export const parsePublishedPackageId = async (contractsRoot: string): Promise<st
 
   if (!packageId?.startsWith("0x")) {
     throw new Error(
-      "PACKAGE_ID is unset and contracts/mars/Published.toml has no published.testnet package id",
+      "SUI_PACKAGE_ID/PACKAGE_ID is unset and contracts/mars/Published.toml has no published.testnet package id",
     );
   }
   return packageId;
