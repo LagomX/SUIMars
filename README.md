@@ -6,14 +6,13 @@ Riders, merchants, and consumers own their delivery data. AI buyers license acce
 
 ## Mars Lifecycle
 
-Mars converts real-world delivery activity into contributor-owned licensed AI datasets through a sequence of secure, audit-ready steps.
+First: The `simulator` creates role-separated personal delivery data owned by contributors; data stays encrypted by default.
 
-1. **Simulator** — create role-separated rider, merchant, and consumer personal data assets with Sui testnet wallets.
-2. **Walrus** — encrypt raw datasets, store ciphertext blobs, and register contributor-owned `DataAsset` objects on Sui.
-3. **Sui** — anchor DataAssets and DataLicenses on-chain so access can be licensed transparently.
-4. **Seal** — gate AES key release so only valid `DataLicense` holders can decrypt a licensed asset.
-5. **Aggregator** — merge licensed rider/merchant/consumer events into AI-ready datasets.
-6. **AI Training** — train ETA, demand, and dispatch models on licensed delivery signals.
+Then: `walrus-uploader` encrypts each dataset with AES-256-GCM, uploads ciphertext blobs to Walrus, and registers a contributor-owned `DataAsset` on Sui.
+
+Next: Buyers acquire on-chain `DataLicense`s; `seal-access` (via `seal_approve`) releases AES keys only to valid license holders, and the `aggregator` merges those licensed rider/merchant/consumer events into AI-ready datasets.
+
+Finally: `ai-agent` trains ETA, demand, and dispatch models on the licensed datasets, and `mars-app` surfaces contributor assets and USDC earnings.
 
 ## Modules
 
