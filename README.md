@@ -17,12 +17,14 @@ Data is encrypted before leaving the user's device. Decryption requires a valid 
 
 ## Mars Lifecycle
 
-```
-Simulator ───► Walrus ───► Sui ───► Seal ───► AI Training
- generate      encrypt      register  gate      train on
- event data    + store      DataAssets  AES key   licensed
-               ciphertext  + licenses           datasets
-```
+Mars converts real-world delivery activity into contributor-owned licensed AI datasets through a sequence of secure, audit-ready steps.
+
+1. **Simulator** — create role-separated rider, merchant, and consumer personal data assets with Sui testnet wallets.
+2. **Walrus** — encrypt raw datasets, store ciphertext blobs, and register contributor-owned `DataAsset` objects on Sui.
+3. **Sui** — anchor DataAssets and DataLicenses on-chain so access can be licensed transparently.
+4. **Seal** — gate AES key release so only valid `DataLicense` holders can decrypt a licensed asset.
+5. **Aggregator** — merge licensed rider/merchant/consumer events into AI-ready datasets.
+6. **AI Training** — train ETA, demand, and dispatch models on licensed delivery signals.
 
 ## Modules
 
@@ -143,7 +145,17 @@ Builds a PTB calling `data_license::seal_approve` on Sui. Seal key servers dry-r
 
 ---
 
-### 5. AI Training — Train ETA, demand, and dispatch models locally
+### 5. Aggregator — Merge licensed events into AI-ready datasets
+
+```bash
+python3 aggregator/main.py                                   # merge licensed rider/merchant/consumer event data
+```
+
+This step joins licensed rider, merchant, and consumer events by `order_id` and produces the dataset used by downstream AI models.
+
+---
+
+### 6. AI Training — Train ETA, demand, and dispatch models locally
 
 ```bash
 scripts/run_mars_ai_pipeline.sh
