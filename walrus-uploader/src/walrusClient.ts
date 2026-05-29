@@ -1,113 +1,75 @@
-import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { promisify } from "node:util";
 import { config } from "./config.js";
 
-const execFileAsync = promisify(execFile);
+const TESTNET_PUBLISHER = "https://publisher.walrus-testnet.walrus.space";
 
 const findBlobId = (value: unknown): string | undefined => {
-  if (typeof value !== "object" || value === null) {
-    return undefined;
-  }
+  if (typeof value !== "object" || value === null) return undefined;
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      const blobId = findBlobId(item);
-      if (blobId) {
-        return blobId;
-      }
+      const id = findBlobId(item);
+      if (id) return id;
     }
     return undefined;
   }
 
   const record = value as Record<string, unknown>;
   for (const key of ["blobId", "blob_id", "blobID"]) {
-    if (typeof record[key] === "string" && record[key].trim()) {
-      return record[key];
+    if (typeof record[key] === "string" && (record[key] as string).trim()) {
+      return record[key] as string;
     }
   }
-
   for (const [key, child] of Object.entries(record)) {
     if (/blob[_-]?id/i.test(key) && typeof child === "string" && child.trim()) {
       return child;
     }
   }
-
   for (const child of Object.values(record)) {
-    const blobId = findBlobId(child);
-    if (blobId) {
-      return blobId;
-    }
+    const id = findBlobId(child);
+    if (id) return id;
   }
-
   return undefined;
 };
 
-const parseWalrusStoreOutput = (stdout: string): string => {
-  const output = stdout.trim();
-  if (!output) {
-    throw new Error("Walrus CLI returned empty output");
-  }
-
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    const blobId = findBlobId(parsed);
-    if (blobId) {
-      return blobId;
-    }
-  } catch {
-    // Some CLI versions may emit human-readable text even when JSON is requested.
-  }
-
-  const match =
-    output.match(/blob[_ -]?id["':\s]+([A-Za-z0-9_-]{20,})/i) ??
-    output.match(/\b([A-Za-z0-9_-]{40,})\b/);
-
-  if (!match?.[1]) {
-    throw new Error(`Could not find a Walrus blob ID in CLI output: ${output.slice(0, 500)}`);
-  }
-
-  return match[1];
-};
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const uploadEncryptedBlob = async (bytes: Buffer): Promise<{ blobId: string }> => {
-  if (bytes.length === 0) {
-    throw new Error("Refusing to upload empty encrypted bytes");
+  if (bytes.length === 0) throw new Error("Refusing to upload empty encrypted bytes");
+
+  const publisherBase = config.walrusPublisherUrl ?? TESTNET_PUBLISHER;
+  const url = `${publisherBase}/v1/blobs?epochs=${config.walrusEpochs}`;
+  const body = new Uint8Array(bytes);
+
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body,
+      });
+    } catch {
+      await sleep(attempt * 2000);
+      continue;
+    }
+
+    if (resp.status === 429 || resp.status >= 500) {
+      await sleep(attempt * 3000);
+      continue;
+    }
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`Walrus publisher returned HTTP ${resp.status}: ${text.slice(0, 300)}`);
+    }
+
+    const json = (await resp.json()) as unknown;
+    const blobId = findBlobId(json);
+    if (!blobId?.trim()) {
+      throw new Error(`Walrus publisher response missing blob ID: ${JSON.stringify(json).slice(0, 300)}`);
+    }
+    return { blobId };
   }
 
-  const tmpDir = path.join(config.outputDir, "tmp");
-  await mkdir(tmpDir, { recursive: true });
-  const tmpFile = path.join(tmpDir, `${randomUUID()}.bin`);
-
-  try {
-    await writeFile(tmpFile, bytes);
-
-    const args = [
-      ...(config.walrusConfigPath ? ["--config", config.walrusConfigPath] : []),
-      "store",
-      tmpFile,
-      "--epochs",
-      String(config.walrusEpochs),
-      "--context",
-      config.walrusContext,
-      "--json",
-    ];
-
-    const { stdout } = await execFileAsync(config.walrusCliPath, args, {
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    return { blobId: parseWalrusStoreOutput(stdout) };
-  } catch (error) {
-    throw new Error(
-      `Walrus testnet upload failed. Confirm WALRUS_CLI_PATH points to the Walrus CLI, ` +
-        `the CLI is configured for testnet context "${config.walrusContext}", and the Walrus wallet is funded. ${
-        (error as Error).message
-      }`,
-    );
-  } finally {
-    await rm(tmpFile, { force: true });
-  }
+  throw new Error("Walrus publisher unreachable after 6 retries");
 };

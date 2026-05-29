@@ -2,7 +2,7 @@
 
 The aggregator is the buyer-side licensed data pipeline.  It does not receive raw plaintext
 from Mars.  Instead it proves on-chain DataLicense ownership to Seal key servers, retrieves
-the AES-256-GCM decryption key for each licensed DataAsset, fetches the encrypted blob from
+the AES-256-GCM decryption key for each licensed DataShard, fetches the encrypted blob from
 Walrus, and decrypts locally.  Decryption is performed by the TypeScript `seal-access` module;
 the Python pipeline only processes the resulting plaintext.
 
@@ -15,13 +15,10 @@ Complete the testnet deployment first (see `TESTNET.md`):
 pnpm simulator:wallets
 pnpm simulator:generate
 
-# 2. Encrypt, upload to Walrus, register keys with Seal and DataAssets on Sui
+# 2. Aggregate authorized data into shards, upload to Walrus, register keys with Seal and DataShards on Sui
 pnpm walrus:upload
 
-# 3. Register DataAsset objects on-chain
-pnpm --dir contracts register:data-assets
-
-# 4. Purchase DataLicense objects on-chain
+# 3. Purchase collection DataLicense objects on-chain
 pnpm --dir contracts prepare:data-license
 ```
 
@@ -43,7 +40,7 @@ or falls back to the active Sui CLI wallet.
 | `aggregator/output/demand_prediction_dataset.json` | Same, JSON format |
 | `aggregator/output/dispatch_dataset.json` | Per-order dispatch candidate states |
 | `aggregator/output/buyer_dataset/manifest.json` | Buyer delivery snapshot manifest |
-| `aggregator/output/buyer_workspace/decryption_manifest.json` | Per-asset decrypt result |
+| `aggregator/output/buyer_workspace/decryption_manifest.json` | Per-shard decrypt result |
 | `aggregator/output/buyer_workspace/decrypted_assets/` | Plaintext asset JSON files |
 
 ## Pipeline
@@ -53,7 +50,7 @@ or falls back to the active Sui CLI wallet.
    - Proves DataLicense ownership to Seal key servers via `data_license::seal_approve`.
    - Fetches encrypted blobs from Walrus testnet.
    - Decrypts with AES-256-GCM.
-   - Expands `PersonalDataset.assets[]` into individual files under
+   - Expands licensed `DatasetShard.assets[]` into individual files under
      `buyer_workspace/decrypted_assets/<data_type>/<asset_id>.json`.
 
 2. **`decrypt_assets.py`** — Loads the already-decrypted JSON files (no crypto here).

@@ -8,7 +8,8 @@ import { Transaction } from "@mysten/sui/transactions";
 import { config, projectRoot } from "./config.js";
 
 type DataAssetRegistryRecord = {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
   blob_id: string;
   data_asset_id: string;
   data_type: string;
@@ -32,7 +33,7 @@ type ApplyReceipt = {
   applied_at: string;
   model_version: string;
   applied: Array<{
-    user_id: string;
+    shard_id: string;
     data_asset_id: string;
     data_type: string;
     quality_score: number;
@@ -148,6 +149,9 @@ const pricingByUserAndType = (report: PricingReport): Map<string, PricingAssetRe
   return byKey;
 };
 
+const registryPricingKey = (asset: DataAssetRegistryRecord): string =>
+  `${asset.shard_id ?? asset.user_id}:${asset.data_type}`;
+
 const main = async (): Promise<void> => {
   const adminCapId = requireObjectId(process.env.ADMIN_CAP_ID, "ADMIN_CAP_ID");
   const packageId = await parsePublishedPackageId();
@@ -166,14 +170,15 @@ const main = async (): Promise<void> => {
   const selected = maxApplications ? registry.slice(0, maxApplications) : registry;
 
   const applied: ApplyReceipt["applied"] = [];
+  const tx = new Transaction();
 
   for (const asset of selected) {
-    const pricing = priceByKey.get(`${asset.user_id}:${asset.data_type}`);
+    const pricingKey = registryPricingKey(asset);
+    const pricing = priceByKey.get(pricingKey);
     if (!pricing) {
-      throw new Error(`No pricing record for ${asset.user_id}:${asset.data_type}`);
+      throw new Error(`No pricing record for ${pricingKey}`);
     }
 
-    const tx = new Transaction();
     tx.moveCall({
       target: `${packageId}::data_asset::set_quality_and_price`,
       arguments: [
@@ -184,32 +189,28 @@ const main = async (): Promise<void> => {
       ],
     });
 
-    const result = await client.signAndExecuteTransaction({
-      signer,
-      transaction: tx,
-      include: {
-        effects: true,
-      },
-    });
-    const transaction = result.Transaction ?? result.FailedTransaction;
-    if (!transaction?.status?.success) {
-      throw new Error(
-        `set_quality_and_price failed for ${asset.user_id}: ${JSON.stringify(
-          transaction?.status?.error ?? result,
-        )}`,
-      );
-    }
-
     applied.push({
-      user_id: asset.user_id,
+      shard_id: asset.shard_id ?? asset.user_id ?? asset.data_asset_id,
       data_asset_id: asset.data_asset_id,
       data_type: asset.data_type,
       quality_score: pricing.quality_score,
       price_micro_usdc: pricing.price_micro_usdc,
     });
     console.log(
-      `${asset.user_id} ${asset.data_type}: quality=${pricing.quality_score} price=${pricing.price_micro_usdc}`,
+      `${asset.shard_id ?? asset.user_id} ${asset.data_type}: quality=${pricing.quality_score} price=${pricing.price_micro_usdc}`,
     );
+  }
+
+  const result = await client.signAndExecuteTransaction({
+    signer,
+    transaction: tx,
+    include: {
+      effects: true,
+    },
+  });
+  const transaction = result.Transaction ?? result.FailedTransaction;
+  if (!transaction?.status?.success) {
+    throw new Error(`set_quality_and_price batch failed: ${JSON.stringify(transaction?.status?.error ?? result)}`);
   }
 
   const receipt: ApplyReceipt = {

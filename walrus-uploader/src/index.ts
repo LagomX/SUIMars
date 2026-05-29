@@ -23,12 +23,13 @@ const main = async (): Promise<void> => {
   }
 
   const records = await uploadDatasets();
-  console.log(`Uploaded ${records.length} encrypted personal dataset blob(s).`);
+  console.log(`Uploaded ${records.length} encrypted dataset shard blob(s).`);
   console.log(`Upload log: ${path.join(config.outputDir, "upload_log.jsonl")}`);
   console.log(`Manifest: ${path.join(config.outputDir, "upload_manifest.json")}`);
   console.log(`DataAsset registry: ${path.join(config.contractsOutputDir, "data_asset_registry.json")}`);
   console.log(`Seal key registry: ${path.join(config.sealAccessOutputDir, "seal_key_registry.json")}`);
   console.log("Raw AES keys were not written to disk.");
+  console.log("Contributor accounting: " + path.join(config.outputDir, "contributor_accounting.json"));
 };
 
 main().catch((error) => {

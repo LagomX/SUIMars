@@ -5,9 +5,10 @@ import { config } from "./config.js";
 import type { DataAssetMetadata, Role } from "./types.js";
 
 export type WalrusUploadRecord = DataAssetMetadata & {
-  user_id: string;
-  owner_addr: string;
-  role: Role;
+  user_id?: string;
+  shard_id?: string;
+  owner_addr?: string;
+  role?: Role;
 };
 
 export type WalrusDatasetInput = {
@@ -40,23 +41,24 @@ const readJson = async <T>(filePath: string): Promise<T> => {
 };
 
 const validateMetadata = (record: WalrusUploadRecord): void => {
-  if (!record.user_id?.trim()) {
-    throw new Error("Walrus upload manifest record is missing user_id");
+  const recordId = record.shard_id ?? record.user_id;
+  if (!recordId?.trim()) {
+    throw new Error("Walrus upload manifest record is missing shard_id/user_id");
   }
   if (!record.blob_id?.trim()) {
-    throw new Error(`${record.user_id} is missing blob_id`);
+    throw new Error(`${recordId} is missing blob_id`);
   }
   if (!record.data_type?.trim()) {
-    throw new Error(`${record.user_id} is missing data_type`);
+    throw new Error(`${recordId} is missing data_type`);
   }
-  if (!Array.isArray(record.contributors) || record.contributors.length === 0) {
-    throw new Error(`${record.user_id} contributors must be a non-empty array`);
+  if (!Array.isArray(record.contributors)) {
+    throw new Error(`${recordId} contributors must be an array`);
   }
   if (record.encryption?.algorithm !== "AES-256-GCM") {
-    throw new Error(`${record.user_id} uses unsupported encryption algorithm ${record.encryption?.algorithm}`);
+    throw new Error(`${recordId} uses unsupported encryption algorithm ${record.encryption?.algorithm}`);
   }
   if (!record.encryption.key_ref?.trim()) {
-    throw new Error(`${record.user_id} is missing encryption.key_ref`);
+    throw new Error(`${recordId} is missing encryption.key_ref`);
   }
 };
 
@@ -66,11 +68,11 @@ const selectRecord = (records: WalrusUploadRecord[], userId?: string): WalrusUpl
   }
 
   const selected = userId
-    ? records.find((record) => record.user_id === userId)
+    ? records.find((record) => record.user_id === userId || record.shard_id === userId)
     : records[0];
 
   if (!selected) {
-    throw new Error(`No Walrus upload record found for user_id ${userId}`);
+    throw new Error(`No Walrus upload record found for ${userId}`);
   }
 
   validateMetadata(selected);
@@ -85,7 +87,10 @@ export const loadWalrusDatasetInput = async (
   const records = await readJson<WalrusUploadRecord[]>(manifestPath);
   const selected = selectRecord(records, userId);
 
-  const encryptedPath = path.join(walrusOutputDir, "encrypted", `${selected.user_id}.bin`);
+  const recordId = selected.shard_id ?? selected.user_id;
+  const encryptedPath = selected.shard_id
+    ? path.join(walrusOutputDir, "encrypted", `${selected.shard_id}.json.gz.enc`)
+    : path.join(walrusOutputDir, "encrypted", `${selected.user_id}.bin`);
   await assertReadable(encryptedPath, "Encrypted dataset");
   const encryptedBytes = await readFile(encryptedPath);
   if (encryptedBytes.length === 0) {
@@ -93,11 +98,12 @@ export const loadWalrusDatasetInput = async (
   }
 
   return {
-    userId: selected.user_id,
+    userId: recordId!,
     metadata: {
       blob_id: selected.blob_id,
       data_type: selected.data_type,
       contributors: selected.contributors,
+      compression: selected.compression,
       encryption: selected.encryption,
       walrus: selected.walrus,
     },

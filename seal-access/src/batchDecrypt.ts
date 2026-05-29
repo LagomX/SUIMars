@@ -20,6 +20,8 @@
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { gunzipSync } from "node:zlib";
 import { config, projectRoot } from "./config.js";
 import { fetchWalrusBlob } from "./walrusHttp.js";
 import { decryptAes256Gcm } from "./decryptDataset.js";
@@ -37,9 +39,11 @@ import type { DataLicenseRegistryRecord, SealKeyRegistryRecord } from "./types.j
 // ─── Types for the walrus upload manifest ─────────────────────────────────────
 
 interface WalrusManifestRecord {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
   blob_id: string;
   data_type: string;
+  compression?: "gzip";
   encryption: {
     algorithm: string;
     key_ref: string;
@@ -75,7 +79,8 @@ interface PersonalDataset {
 // ─── Output manifest entry ────────────────────────────────────────────────────
 
 export interface DecryptionManifestEntry {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
   data_asset_id: string;
   blob_id: string;
   data_type: string;
@@ -93,7 +98,7 @@ const readJson = async <T>(filePath: string): Promise<T> => {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-const batchDecryptAssets = async (): Promise<void> => {
+export const batchDecryptAssets = async (): Promise<DecryptionManifestEntry[]> => {
   const buyerWorkspaceDir = path.join(
     projectRoot,
     "aggregator",
@@ -117,7 +122,7 @@ const batchDecryptAssets = async (): Promise<void> => {
   const walrusManifest = await readJson<WalrusManifestRecord[]>(
     path.join(config.walrusOutputDir, "upload_manifest.json"),
   );
-  const manifestByUserId = new Map(walrusManifest.map((r) => [r.user_id, r]));
+  const manifestById = new Map(walrusManifest.map((r) => [r.shard_id ?? r.user_id, r]));
 
   // ── Load buyer signer ────────────────────────────────────────────────────
   const buyerSigner = await loadLicensedBuyerSigner();
@@ -131,9 +136,10 @@ const batchDecryptAssets = async (): Promise<void> => {
   const decryptionManifest: DecryptionManifestEntry[] = [];
 
   for (const dataAsset of dataAssets) {
-    const { user_id, data_asset_id, blob_id } = dataAsset;
+    const { data_asset_id, blob_id } = dataAsset;
+    const recordId = dataAsset.shard_id ?? dataAsset.user_id;
 
-    console.log(`── [${user_id}] ──────────────────────────────────────`);
+    console.log(`── [${recordId}] ──────────────────────────────────────`);
     console.log(`   DataAsset : ${data_asset_id}`);
     console.log(`   Blob      : ${blob_id}`);
 
@@ -149,9 +155,9 @@ const batchDecryptAssets = async (): Promise<void> => {
       continue;
     }
 
-    const walrusRecord = manifestByUserId.get(user_id);
+    const walrusRecord = manifestById.get(recordId);
     if (!walrusRecord) {
-      console.warn(`   ⚠  Skipping: ${user_id} not found in upload_manifest.json`);
+      console.warn(`   ⚠  Skipping: ${recordId} not found in upload_manifest.json`);
       continue;
     }
 
@@ -184,7 +190,8 @@ const batchDecryptAssets = async (): Promise<void> => {
     // ── Decrypt AES-256-GCM ────────────────────────────────────────────────
     let personalDataset: PersonalDataset;
     try {
-      const plaintext = decryptAes256Gcm(encryptedBytes, aesKey, iv, auth_tag);
+      const decryptedBytes = decryptAes256Gcm(encryptedBytes, aesKey, iv, auth_tag);
+      const plaintext = walrusRecord.compression === "gzip" ? gunzipSync(decryptedBytes) : decryptedBytes;
       personalDataset = JSON.parse(plaintext.toString("utf8")) as PersonalDataset;
       if (!Array.isArray(personalDataset.assets) || personalDataset.assets.length === 0) {
         throw new Error("PersonalDataset has no assets array");
@@ -216,7 +223,8 @@ const batchDecryptAssets = async (): Promise<void> => {
     }
 
     decryptionManifest.push({
-      user_id,
+      user_id: dataAsset.user_id,
+      shard_id: dataAsset.shard_id,
       data_asset_id,
       blob_id,
       data_type: dataAsset.data_type,
@@ -236,9 +244,13 @@ const batchDecryptAssets = async (): Promise<void> => {
   console.log(`  ${decryptionManifest.length} DataAsset(s) decrypted.`);
   console.log(`  ${total} individual asset file(s) written.`);
   console.log(`  Manifest: ${path.relative(projectRoot, manifestPath)}`);
+
+  return decryptionManifest;
 };
 
-batchDecryptAssets().catch((error) => {
-  console.error((error as Error).message);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  batchDecryptAssets().catch((error) => {
+    console.error((error as Error).message);
+    process.exit(1);
+  });
+}

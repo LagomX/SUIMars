@@ -1,9 +1,0 @@
-[
-  {
-    "user_id": "consumer_001",
-    "data_asset_id": "0x9f76b51aa8d67e11ffe611347eefc9f76862691d001f1384ae5aba18e24bb5e6",
-    "data_license_id": "0x9361da9e1d2cb3beb3ace5180cc69a5618c5a715e7f04c4b3f4f1f31c0d45ae2",
-    "buyer": "0x48ab56344e49f7dde97c5c9e1934424d82e0cee05164339d4cd6726314a128fe",
-    "data_type": "consumer_behavior"
-  }
-]

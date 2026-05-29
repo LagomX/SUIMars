@@ -68,12 +68,14 @@ export const selectDataAsset = (
   records: DataAssetRegistryRecord[],
   userId?: string,
 ): DataAssetRegistryRecord => {
-  const selected = userId ? records.find((record) => record.user_id === userId) : records[0];
+  const selected = userId
+    ? records.find((record) => record.user_id === userId || record.shard_id === userId)
+    : records[0];
   if (!selected) {
     throw new Error(userId ? `No DataAsset registry record for ${userId}` : "DataAsset registry is empty");
   }
   if (!selected.data_asset_id?.startsWith("0x")) {
-    throw new Error(`${selected.user_id} has invalid data_asset_id ${selected.data_asset_id}`);
+    throw new Error(`${selected.shard_id ?? selected.user_id} has invalid data_asset_id ${selected.data_asset_id}`);
   }
   return selected;
 };
@@ -87,7 +89,7 @@ export const selectLicense = (
     throw new Error(`No DataLicense registry record for DataAsset ${dataAssetId}`);
   }
   if (!selected.data_license_id?.startsWith("0x")) {
-    throw new Error(`${selected.user_id} has invalid data_license_id ${selected.data_license_id}`);
+    throw new Error(`${selected.shard_id ?? selected.user_id} has invalid data_license_id ${selected.data_license_id}`);
   }
   return selected;
 };

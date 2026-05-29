@@ -17,12 +17,23 @@ type Contributor = {
 };
 
 export type UploadManifestRecord = {
-  user_id: string;
-  owner_addr: string;
-  role: string;
+  shard_id: string;
+  dataset_collection_id: string;
   data_type: string;
+  region: string;
+  epoch: string;
   blob_id: string;
+  shard_content_hash: string;
+  contributor_root: string;
+  authorization_root: string;
+  accounting_root: string;
+  total_contributors: number;
+  total_events: number;
+  contributor_count: number;
+  asset_count: number;
+  event_count: number;
   contributors: Contributor[];
+  compression: "gzip";
   encryption: {
     algorithm: typeof ENCRYPTION_ALGORITHM;
     key_ref: string;
@@ -36,17 +47,29 @@ export type UploadManifestRecord = {
 };
 
 export type DataAssetRegistryRecord = {
-  user_id: string;
+  shard_id: string;
+  dataset_collection_id: string;
   blob_id: string;
   data_asset_id: string;
   data_type: string;
+  region: string;
+  epoch: string;
+  shard_content_hash: string;
+  contributor_root: string;
+  authorization_root: string;
+  accounting_root: string;
+  total_contributors: number;
+  total_events: number;
+  contributor_count: number;
 };
 
 export type SealKeyRegistryRecord = {
-  user_id: string;
+  shard_id: string;
   blob_id: string;
   data_asset_id: string;
   data_type: string;
+  region: string;
+  epoch: string;
   key_ref: string;
   seal_id: string;
   move_package_id: string;
@@ -76,6 +99,26 @@ type TxWithEffectsAndTypes = SuiClientTypes.Transaction<{
   effects: true;
   objectTypes: true;
 }>;
+
+const BATCH_SIZE = 90;
+const SEAL_CONCURRENCY = 20;
+
+const concurrentMap = async <T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> => {
+  const results: R[] = new Array(items.length);
+  let index = 0;
+  const worker = async (): Promise<void> => {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+};
 
 const textBytes = (value: string): number[] => [...Buffer.from(value, "utf8")];
 
@@ -143,7 +186,11 @@ const loadSigner = async (): Promise<Ed25519Keypair> => {
   throw new Error(`Could not find active ED25519 Sui key in ${keystorePath}`);
 };
 
-const findCreatedDataAssetId = (transaction: TxWithEffectsAndTypes, packageId: string): string => {
+const findAllCreatedDataAssetIds = (
+  transaction: TxWithEffectsAndTypes,
+  packageId: string,
+  expectedCount: number,
+): string[] => {
   const changedObjects = transaction.effects?.changedObjects;
   const objectTypes = transaction.objectTypes;
   if (!changedObjects || typeof objectTypes !== "object" || objectTypes === null) {
@@ -151,73 +198,70 @@ const findCreatedDataAssetId = (transaction: TxWithEffectsAndTypes, packageId: s
   }
 
   const expectedTypeSuffix = "::data_asset::DataAsset";
-  const created = changedObjects.find((change) => {
-    const objectType = change.objectId ? objectTypes[change.objectId] : undefined;
-    return (
-      change.idOperation === "Created" &&
-      typeof objectType === "string" &&
-      objectType.startsWith(packageId) &&
-      objectType.endsWith(expectedTypeSuffix)
-    );
-  });
+  const created = changedObjects
+    .filter((change) => {
+      const objectType = change.objectId ? objectTypes[change.objectId] : undefined;
+      return (
+        change.idOperation === "Created" &&
+        typeof objectType === "string" &&
+        objectType.startsWith(packageId) &&
+        objectType.endsWith(expectedTypeSuffix)
+      );
+    })
+    .map((change) => change.objectId!);
 
-  if (!created?.objectId?.startsWith("0x")) {
-    throw new Error("Could not find created DataAsset object");
+  if (created.length !== expectedCount) {
+    throw new Error(`Expected ${expectedCount} created DataAssets, found ${created.length}`);
   }
-  return created.objectId;
+  return created;
 };
 
-const registerDataAsset = async (
+const registerDataAssetBatch = async (
   client: SuiGrpcClient,
   signer: Ed25519Keypair,
   packageIds: PackageIds,
-  manifest: UploadManifestRecord,
-): Promise<string> => {
+  manifests: UploadManifestRecord[],
+): Promise<string[]> => {
   const tx = new Transaction();
-  const contributorObjects = manifest.contributors.map((contributor) =>
+
+  for (const manifest of manifests) {
     tx.moveCall({
-      target: `${packageIds.publishedAt}::data_asset::new_contributor`,
+      target: `${packageIds.publishedAt}::data_asset::register_data_shard`,
       arguments: [
-        tx.pure.address(contributor.addr),
-        tx.pure.vector("u8", textBytes(contributor.role)),
-        tx.pure.u64(contributor.weight_bps),
+        tx.pure.vector("u8", textBytes(manifest.blob_id)),
+        tx.pure.vector("u8", textBytes(manifest.data_type)),
+        tx.pure.vector("u8", textBytes(manifest.region)),
+        tx.pure.vector("u8", textBytes(manifest.epoch)),
+        tx.pure.vector("u8", textBytes(manifest.shard_content_hash)),
+        tx.pure.vector("u8", textBytes(manifest.contributor_root)),
+        tx.pure.vector("u8", textBytes(manifest.authorization_root)),
+        tx.pure.vector("u8", textBytes(manifest.accounting_root)),
+        tx.pure.u64(manifest.total_contributors),
+        tx.pure.u64(manifest.total_events),
+        tx.object.clock(),
       ],
-    }),
-  );
-
-  const contributors = tx.makeMoveVec({
-    type: `${packageIds.publishedAt}::data_asset::Contributor`,
-    elements: contributorObjects,
-  });
-
-  tx.moveCall({
-    target: `${packageIds.publishedAt}::data_asset::register_data_asset`,
-    arguments: [
-      tx.pure.vector("u8", textBytes(manifest.blob_id)),
-      contributors,
-      tx.pure.vector("u8", textBytes(manifest.data_type)),
-      tx.object.clock(),
-    ],
-  });
+    });
+  }
 
   const result = await client.signAndExecuteTransaction({
     signer,
     transaction: tx,
-    include: {
-      effects: true,
-      objectTypes: true,
-    },
+    include: { effects: true, objectTypes: true },
   });
 
   const transaction = result.Transaction ?? result.FailedTransaction;
   if (!transaction?.status?.success) {
     throw new Error(
-      `register_data_asset failed for ${manifest.user_id}: ` +
+      `register_data_shard batch (${manifests.length} shard(s)) failed: ` +
         `${JSON.stringify(transaction?.status?.error ?? result)}`,
     );
   }
 
-  return findCreatedDataAssetId(transaction as TxWithEffectsAndTypes, packageIds.originalId);
+  return findAllCreatedDataAssetIds(
+    transaction as TxWithEffectsAndTypes,
+    packageIds.originalId,
+    manifests.length,
+  );
 };
 
 const sealKeyServerConfigs = () => [
@@ -253,10 +297,12 @@ const registerAesKeyWithSeal = async (
   });
 
   return {
-    user_id: manifest.user_id,
+    shard_id: manifest.shard_id,
     blob_id: manifest.blob_id,
     data_asset_id: dataAssetId,
     data_type: manifest.data_type,
+    region: manifest.region,
+    epoch: manifest.epoch,
     key_ref: manifest.encryption.key_ref,
     seal_id: dataAssetId,
     move_package_id: packageIds.publishedAt,
@@ -286,30 +332,54 @@ export const registerUploadedDatasetsOnSuiAndSeal = async (
   });
 
   const dataAssets: DataAssetRegistryRecord[] = [];
-  const sealedKeys: SealKeyRegistryRecord[] = [];
+  const dataAssetIds: string[] = [];
 
-  for (const input of inputs) {
-    const dataAssetId = await registerDataAsset(client, signer, packageIds, input.manifest);
-    dataAssets.push({
-      user_id: input.manifest.user_id,
-      blob_id: input.manifest.blob_id,
-      data_asset_id: dataAssetId,
-      data_type: input.manifest.data_type,
-    });
-    console.log(`${input.manifest.user_id} registered DataAsset ${dataAssetId}`);
-
-    const sealedKey = await registerAesKeyWithSeal(
+  for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
+    const batch = inputs.slice(i, i + BATCH_SIZE);
+    const batchIds = await registerDataAssetBatch(
       client,
+      signer,
       packageIds,
-      input.manifest,
-      dataAssetId,
-      input.aesKey,
+      batch.map((b) => b.manifest),
     );
-    sealedKeys.push(sealedKey);
-    console.log(`${input.manifest.user_id} registered AES key with Seal`);
-
-    input.aesKey.fill(0);
+    for (let j = 0; j < batch.length; j++) {
+      dataAssets.push({
+        shard_id: batch[j].manifest.shard_id,
+        dataset_collection_id: batch[j].manifest.dataset_collection_id,
+        blob_id: batch[j].manifest.blob_id,
+        data_asset_id: batchIds[j],
+        data_type: batch[j].manifest.data_type,
+        region: batch[j].manifest.region,
+        epoch: batch[j].manifest.epoch,
+        shard_content_hash: batch[j].manifest.shard_content_hash,
+        contributor_root: batch[j].manifest.contributor_root,
+        authorization_root: batch[j].manifest.authorization_root,
+        accounting_root: batch[j].manifest.accounting_root,
+        total_contributors: batch[j].manifest.total_contributors,
+        total_events: batch[j].manifest.total_events,
+        contributor_count: batch[j].manifest.contributor_count,
+      });
+      dataAssetIds.push(batchIds[j]);
+      console.log(`${batch[j].manifest.shard_id} registered DataShard ${batchIds[j]}`);
+    }
   }
+
+  const sealedKeys = await concurrentMap(
+    inputs.map((input, i) => ({ input, dataAssetId: dataAssetIds[i] })),
+    SEAL_CONCURRENCY,
+    async ({ input, dataAssetId }) => {
+      const sealedKey = await registerAesKeyWithSeal(
+        client,
+        packageIds,
+        input.manifest,
+        dataAssetId,
+        input.aesKey,
+      );
+      input.aesKey.fill(0);
+      console.log(`${input.manifest.shard_id} registered shard AES key with Seal`);
+      return sealedKey;
+    },
+  );
 
   return { dataAssets, sealedKeys };
 };

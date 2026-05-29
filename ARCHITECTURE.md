@@ -1,14 +1,14 @@
 # Mars Architecture
 
-Mars is a decentralized delivery data infrastructure protocol on Sui + Walrus + Seal. It turns real-world delivery activity into user-owned encrypted DataAssets, licenses access to AI buyers through on-chain DataLicenses, and demonstrates AI utility through demand prediction and dispatch optimization.
+Mars is a decentralized delivery data infrastructure protocol on Sui + Walrus + Seal. It turns real-world delivery activity into contributor-owned encrypted DataAssets, licenses access to AI buyers through on-chain DataLicenses, and demonstrates AI utility through demand prediction and dispatch optimization.
 
 ## Repository Structure
 
 ```
 contracts/
   mars/                  Sui Move package (5 modules)
-  register_data_assets.ts
   prepare_data_license.ts
+  suiUtils.ts
   package.json / tsconfig.json
 
 simulator/               Personal DataAsset + wallet generator
@@ -17,18 +17,18 @@ simulator/               Personal DataAsset + wallet generator
   users/                 (gitignored — contains private keys)
   output/
 
-walrus-uploader/         AES-256-GCM encryption + Walrus upload + Seal key registration
+walrus-uploader/         Shard aggregation + AES-256-GCM encryption + Walrus HTTP upload + Seal key registration
   src/
 
 seal-access/             Seal access policy + AES-GCM decrypt
   src/
-  input/
   output/
 
 aggregator/              Python buyer-side licensed data pipeline
 ai-agent/                LightGBM demand prediction + dispatch optimization
+mars-marketplace-design/ Next.js marketplace frontend
 mars-app/                Expo/React Native ownership dashboard
-scripts/                 Local pipeline orchestration
+scripts/                 Pipeline orchestration scripts
 ```
 
 ---
@@ -42,32 +42,46 @@ scripts/                 Local pipeline orchestration
    → simulator/users/all_users.json  (gitignored)
 
 2. simulator:generate
-   → 640 PersonalDataAsset objects (one per user per data type)
+   → 640 PersonalDataAsset JSON files (one per user)
    → 16 043 simulated delivery orders
    → simulator/output/raw_assets/**/*.json
    → simulator/output/orders.json
 
-3. walrus-uploader
-   → AES-256-GCM encrypt each DataAsset JSON
-   → upload ciphertext to Walrus testnet → blob_id
-   → SealClient.encrypt(aesKeyBytes, { packageId, id: dataAssetId }) → EncryptedObject
-   → Sui PTB: register_data_asset(blob_id, contributors, data_type) → DataAsset object ID
+3. walrus:upload  (walrus-uploader/src/uploadDataset.ts)
+   → simulate scoped listing authorization per user
+   → aggregate assets into DatasetShards by (data_type × region × epoch)
+   → for each shard:
+       JSON → gzip → AES-256-GCM encrypt → upload to Walrus HTTP Publisher → blob_id
+       compute SHA-256 commitment roots (content, contributor, authorization, accounting)
+   → batch PTB: register_data_shard(...) → DataAsset shared object ID  [up to 90 per PTB]
+   → parallel SealClient.encrypt(aesKey, { packageId, id: dataAssetId }) [concurrency 20]
    → walrus-uploader/output/upload_manifest.json
+   → walrus-uploader/output/listing_authorizations.json
+   → walrus-uploader/output/contributor_accounting.json
    → contracts/output/data_asset_registry.json
    → seal-access/output/seal_key_registry.json
 
-4. contracts (testnet deployment flow)
-   → sui client publish contracts/mars → PACKAGE_ID
-   → register_data_assets.ts → on-chain DataAsset shared objects
-   → prepare_data_license.ts → purchase DataLicense on-chain
+4. pricing:testnet
+   → ai-pricing/price_report.py → quality scores + micro-USDC prices
+   → walrus-uploader/src/priceAssets.ts → batch PTB set_quality_and_price(AdminCap, DataAsset, score, price)
+   → ai-pricing/output/pricing_report.json
+   → ai-pricing/output/pricing_apply_receipt.json
 
-5. seal-access
-   Mock mode: demo AES key + mock policy check → AES-GCM decrypt
-   Real mode: PTB calls seal_approve → Seal key servers release AES key → decrypt
+5. contracts:license
+   → contracts/prepare_data_license.ts
+   → mint TestUSDC (USDC_TREASURY_CAP_ID)
+   → call set_for_sale(true) + purchase_access(DataAsset, payment, clock)
+   → DataLicense minted and transferred to buyer
+   → contracts/output/data_license_registry.json
 
-6. aggregator + ai-agent (local AI pipeline)
-   → aggregate licensed DataAssets
-   → demand prediction training + inference
+6. seal:decrypt / aggregator:decrypt
+   → build PTB calling seal_approve(id, license, asset)
+   → Seal key servers verify DataLicense ownership → release AES key
+   → AES-GCM decrypt Walrus blob locally → plaintext shard JSON
+
+7. aggregator + ai-agent (local AI pipeline)
+   → aggregate licensed DatasetShards
+   → demand prediction training + inference (LightGBM)
    → dispatch optimization scoring
 ```
 
@@ -89,29 +103,38 @@ Registers encrypted Walrus blobs as on-chain shared objects.
 public struct DataAsset has key {
     id: UID,
     contributors: vector<Contributor>,
-    blob_id: vector<u8>,        // Walrus blob identifier
-    data_type: vector<u8>,      // "rider_mobility" | "merchant_operations" | "consumer_demand"
-    quality_score: u64,         // 0–100; written by AI Agent
-    price_usdc: Option<u64>,    // set by AI Agent via set_quality_and_price
-    for_sale: bool,             // contributor toggles to list the asset
-    reward_pool: Balance<USDC>, // accumulates from purchases
+    blob_id: vector<u8>,              // Walrus blob identifier
+    data_type: vector<u8>,            // "rider_mobility" | "merchant_operations" | "consumer_behavior"
+    region: vector<u8>,               // aggregation region (e.g. "santa_monica")
+    epoch: vector<u8>,                // aggregation epoch (ISO week, e.g. "2026-W01")
+    shard_content_hash: vector<u8>,   // SHA-256 of canonical plaintext shard content
+    contributor_root: vector<u8>,     // SHA-256 commitment to contributor manifests
+    authorization_root: vector<u8>,   // SHA-256 commitment to listing authorizations
+    accounting_root: vector<u8>,      // SHA-256 commitment to contributor accounting records
+    total_contributors: u64,
+    total_events: u64,
+    quality_score: u64,               // 0–100; set by AI Agent
+    price_usdc: Option<u64>,          // set by AI Agent via set_quality_and_price
+    for_sale: bool,                   // contributor toggles to list
+    reward_pool: Balance<USDC>,
     created_at: u64,
 }
 ```
 
 **Key functions:**
 
-- `new_contributor(addr, role, weight_bps)` — build a `Contributor` value in a PTB.
-- `register_data_asset(blob_id, contributors, data_type, clock, ctx)` — creates and shares a `DataAsset`; returns the stable Sui object ID used by Seal.
+- `register_data_shard(blob_id, data_type, region, epoch, shard_content_hash, contributor_root, authorization_root, accounting_root, total_contributors, total_events, clock, ctx)` — creates and shares a shard-level DataAsset. The on-chain contributor is the listing operator (`ctx.sender()`); individual contributor shares live off-chain committed by `accounting_root`.
+- `register_data_asset(blob_id, contributors, data_type, clock, ctx)` — legacy personal-asset registration; kept for backward compatibility.
 - `set_quality_and_price(cap, asset, score, price, ctx)` — AI Agent sets quality and listing price (requires `AdminCap`).
 - `set_for_sale(asset, for_sale, ctx)` — contributor lists or delists the asset.
 - `distribute_reward(asset, ctx)` — distributes reward pool to contributors proportional to `weight_bps`.
 
 **Invariants:**
 
-- `blob_id` and `data_type` must be non-empty — enforced on registration (`EEmptyBlobId` / `EEmptyDataType`).
-- `sum(contributors.weight_bps) == 10 000` — enforced on registration (`EInvalidWeights`).
-- Only contributors may call `set_for_sale` (`ENotContributor`).
+- `blob_id` and `data_type` must be non-empty — `EEmptyBlobId` / `EEmptyDataType`.
+- All shard commitment fields must be non-empty — `EEmptyCommitment`.
+- `sum(contributors.weight_bps) == 10 000` — `EInvalidWeights`.
+- Only contributors may call `set_for_sale` — `ENotContributor`.
 - Only `purchase_access` funds `reward_pool` (package-visibility gate).
 
 ---
@@ -138,7 +161,6 @@ public struct DataLicense has key {
 - `purchase_access(asset, payment, clock, ctx)` — validates listing + exact payment, funds reward pool, mints DataLicense and transfers it to `ctx.sender()`.
 - `verify_license(asset, license, requester) → bool` — checks `data_asset_id` match, `buyer == requester`, perpetual license type.
 - **`seal_approve(id, license, asset, ctx)`** — Seal key server gate.
-- `transfer_for_testing(license, recipient)` *(#[test_only])* — transfers a `DataLicense` to another address for testing; `DataLicense` lacks `store` so `transfer::transfer` is private to this module.
 
 **`seal_approve` detail:**
 
@@ -149,14 +171,12 @@ public fun seal_approve(
     asset: &DataAsset,       // shared object in PTB
     ctx: &TxContext,
 ) {
-    // Binds this key to exactly one DataAsset (prevents key confusion)
     assert!(bcs::to_bytes(&object::id(asset)) == id, EUnauthorized);
-    // Caller must hold a valid perpetual DataLicense for this asset
     assert!(verify_license(asset, license, ctx.sender()), EUnauthorized);
 }
 ```
 
-Seal key servers call this function in a dry-run PTB. If it aborts, the key is not released.
+Seal key servers call this in a dry-run PTB. If it aborts, the key is not released.
 
 **How to build the PTB in TypeScript:**
 
@@ -189,139 +209,86 @@ Created → Paid → Accepted → (Preparing →) PickedUp → Delivered → Com
 Created | Paid → Cancelled
 ```
 
-**Key functions:**
-
-- `create_order(merchant, clock, ctx)` — shares a new `Order`.
-- `pay_order(order, payment, ctx)` — customer locks USDC.
-- `accept_order` / `start_preparing` / `pickup_order` / `mark_delivered` — fulfillment chain.
-- `confirm_completed` — customer confirms or auto-completes after the 24-hour window.
-- `raise_dispute` — customer raises a dispute; uses strict `<` against `delivered_at + DISPUTE_WINDOW_MS` so the dispute window closes one millisecond before the auto-complete window opens (no race at the exact boundary).
-- `resolve_dispute` — admin resolves a dispute (`ruling=0` → refund; `ruling=1` → complete).
-- `link_data_asset(order, asset_id)` — package-internal; links a DataAsset to an order.
-
 Also defines `AdminCap` used by AI Agent for `set_quality_and_price` and dispute resolution.
 
 ---
 
 #### `settlement.move`
 
-Distributes completed order escrow.
-
-- Merchant: 85 % of escrow.
-- Rider: remainder (~15 %), absorbs rounding dust.
-
-Permissionless — anyone can call after `order.state == Completed`.
+Distributes completed order escrow. Merchant: 85%; Rider: remainder. Permissionless.
 
 ---
 
 #### `usdc.move`
 
-Mock TestUSDC coin for testnet. `mint_for_testing(cap, amount, ctx)` seeds test wallets. Deployer receives `TreasuryCap`; metadata is frozen.
-
----
-
-### `contracts/register_data_assets.ts`
-
-TypeScript PTB script. After `walrus-uploader` produces `upload_manifest.json`, this script:
-
-1. Reads each upload record.
-2. Builds a PTB calling `data_asset::new_contributor` + `data_asset::register_data_asset`.
-3. Signs with the deployer key (from Sui CLI wallet or `SUI_PRIVATE_KEY` env var).
-4. Writes `contracts/output/data_asset_registry.json` mapping `user_id → data_asset_id`.
-
-**Usage:**
-
-```bash
-PACKAGE_ID=0x... pnpm --dir contracts register:data-assets
-```
-
----
-
-### `contracts/prepare_data_license.ts`
-
-TypeScript PTB script. Purchases a DataLicense on testnet by calling `data_license::purchase_access` with mock USDC.
-
-**Usage:**
-
-```bash
-PACKAGE_ID=0x... ADMIN_CAP_ID=0x... pnpm --dir contracts prepare:data-license
-```
-
----
-
-### `simulator/`
-
-Deterministic 7-day delivery simulator.
-
-**Wallet generation (`simulator/wallets/generate_testnet_wallets.ts`):**
-
-- Generates real Sui Ed25519 keypairs using `@mysten/sui`.
-- Outputs `simulator/users/all_users.json` — includes `sui_address` and `private_key`.
-- Private keys are gitignored. Never use these for mainnet funds.
-- Configurable via `MARS_RIDER_COUNT` / `MARS_MERCHANT_COUNT` / `MARS_CONSUMER_COUNT`.
-
-**DataAsset generation (`simulator/src/generator.ts`):**
-
-- Reads `all_users.json`; throws descriptive error if missing (run `pnpm simulator:wallets` first).
-- Creates one `PersonalDataAsset` per user per data type.
-- Each asset embeds real Sui addresses in `owner` and `contributors[].addr`.
-- `assertContributorWeights` validates `sum(weight_bps) == 10 000`.
-- 16-grid spatial system (Santa Monica): `SM_A1` through `SM_D4`.
-- Seeded random → deterministic output for reproducible tests.
-
-**Key outputs:**
-
-```
-simulator/output/raw_assets/rider_mobility/*.json      (100 assets)
-simulator/output/raw_assets/merchant_operations/*.json (40 assets)
-simulator/output/raw_assets/consumer_demand/*.json     (500 assets)
-simulator/output/orders.json                           (16 043 orders)
-simulator/output/simulation_summary.json
-```
+Mock TestUSDC coin for testnet. `mint_for_testing(cap, amount, ctx)` seeds test wallets.
 
 ---
 
 ### `walrus-uploader/`
 
-Encrypts personal DataAssets and wires them into Walrus, Seal, and Sui.
+Aggregates personal DataAssets into dataset shards, encrypts, uploads to Walrus, and wires into Sui + Seal.
 
-**Pipeline (`uploadDataset.ts`):**
+#### Pipeline (`uploadDataset.ts`)
 
 ```
-for each raw asset JSON:
-  1. Validate contributor addresses and weight_bps
-  2. encryptBytes(plaintext) → { ciphertext, key, iv, authTag }
-  3. writeFile(encrypted_dir/<user_id>.bin, ciphertext)
-  4. uploadEncryptedBlob(ciphertext) → blob_id
-     mock: sha256 deterministic ID
-     real: walrus store --json
-  5. suiSealRegistration.registerUploadedDataset(manifest, aesKey)
-     → SealClient.encrypt(aesKey, { packageId, id: dataAssetId })
-     → writes seal-access/output/seal_key_registry.json
-     → registers DataAsset on Sui via register_data_asset PTB
-     → writes contracts/output/data_asset_registry.json
-  6. append record to upload_manifest.json
-     (raw AES key NOT written to disk in real mode)
+1. Load 640 PersonalDataAsset JSON files from simulator/output/raw_assets/
+2. Simulate a scoped listing authorization for each user
+   (signed: user_id, user_address, data_type, region, epoch, expires_at)
+3. Validate and filter to authorized assets only
+4. Group authorized assets into DatasetShards by (data_type × region × epoch)
+   → contributor accounting (share_ppm per contributor per shard)
+   → SHA-256 commitment roots: shard_content_hash, contributor_root,
+     authorization_root, accounting_root
+5. For each shard (concurrency 5):
+   a. JSON → gzip → AES-256-GCM encrypt (random 256-bit key per shard)
+   b. Write encrypted blob to walrus-uploader/output/encrypted/<shard_id>.json.gz.enc
+   c. Upload ciphertext to Walrus HTTP Publisher → blob_id
+6. Sequential PTB batches (90 shards per PTB):
+   register_data_shard(...) → DataAsset shared object ID
+7. Parallel Seal registration (concurrency 20):
+   SealClient.encrypt(aesKey, { packageId, id: dataAssetId }) → EncryptedObject
+   AES key zeroed in memory after Seal wraps it
+8. Write output files
 ```
 
-**Security:**
+#### `suiSealRegistration.ts`
 
-- In **mock mode**: raw AES keys are not written to disk; `local_demo_keys.json` is not generated.
-- In **real mode**: AES key is passed to `SealClient.encrypt` and immediately discarded. Only the Seal `EncryptedObject` is persisted.
-- `MOCK_WALRUS=true` uses SHA-256 blob IDs and skips the Walrus CLI.
+- `BATCH_SIZE = 90` — max `register_data_shard` calls per PTB (nonce safety)
+- `SEAL_CONCURRENCY = 20` — parallel Seal key registrations
+- Uses Sui gRPC client (`SuiGrpcClient`) for transaction execution
+- Reads signer from `SUI_PRIVATE_KEY` env var or active Sui CLI wallet
+- Reads package ID from `SEAL_PACKAGE_ID` / `SUI_PACKAGE_ID` env var or `contracts/mars/Published.toml`
 
-**Type safety:** `suiSealRegistration.ts` uses no `any` types — all Sui gRPC client calls are typed through a `TxWithEffectsAndTypes` alias (`SuiClientTypes.Transaction<{ effects: true; objectTypes: true }>`). The package ships as ESM (`"type": "module"`) with `moduleResolution: node16` and `.js` extension imports throughout.
+#### `walrusClient.ts`
 
-**Config env vars (`.env.example`):**
+Uses the Walrus HTTP Publisher API — no Walrus CLI dependency.
+
+```
+PUT https://publisher.walrus-testnet.walrus.space/v1/blobs?epochs=N
+Content-Type: application/octet-stream
+Body: encrypted shard bytes
+→ Response JSON contains blob_id
+```
+
+Retry logic: up to 6 attempts; exponential backoff on network errors, 429, and 5xx.
+
+#### Config env vars (`walrus-uploader/.env`)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MOCK_WALRUS` | `false` | Use deterministic mock blob IDs |
-| `WALRUS_CLI_PATH` | `walrus` | Path to Walrus CLI binary |
-| `WALRUS_CONTEXT` | `testnet` | Walrus network context |
-| `SEAL_KEY_SERVER_OBJECT_ID` | (testnet default) | Seal key server object ID |
-| `SEAL_AGGREGATOR_URL` | (testnet default) | Seal aggregator endpoint |
-| `MAX_UPLOADS` | unset | Limit uploads for smoke tests |
+| `SUI_RPC_URL` | testnet fullnode | Sui gRPC endpoint |
+| `SUI_PRIVATE_KEY` | Sui CLI wallet | Signer for DataAsset registration and pricing |
+| `SUI_PACKAGE_ID` / `SEAL_PACKAGE_ID` | Published.toml | Mars Move package ID |
+| `WALRUS_PUBLISHER_URL` | testnet publisher | Walrus HTTP Publisher base URL |
+| `WALRUS_EPOCHS` | `2` | Walrus blob storage duration in epochs |
+| `SEAL_KEY_SERVER_OBJECT_ID` | testnet default | Seal key server object ID |
+| `SEAL_AGGREGATOR_URL` | testnet default | Seal aggregator endpoint |
+| `SEAL_THRESHOLD` | `1` | Seal threshold for key recovery |
+| `SEAL_VERIFY_KEY_SERVERS` | `false` | Verify Seal key server TLS certificates |
+| `USERS_PATH` | `simulator/users/all_users.json` | Simulator wallet file |
+| `RAW_ASSETS_DIR` | `simulator/output/raw_assets` | Raw asset JSON directory |
+| `MAX_UPLOADS` | unset | Limit shard count for smoke tests |
 
 ---
 
@@ -329,17 +296,16 @@ for each raw asset JSON:
 
 Seal-gated decryption module.
 
-**Architecture note:** Seal does not encrypt Walrus blobs. Walrus blobs are encrypted with a symmetric AES-256-GCM key. Seal protects that key:
+**Architecture note:** Seal does not encrypt Walrus blobs. Walrus blobs are encrypted with AES-256-GCM. Seal protects the symmetric AES key:
 
 ```
-Data owner → SealClient.encrypt(aesKeyBytes, { packageId, id: dataAssetId })
-           → EncryptedObject stored in seal_key_registry.json
+Uploader → SealClient.encrypt(aesKeyBytes, { packageId, id: dataAssetId })
+         → EncryptedObject stored in seal_key_registry.json
 
-Buyer      → PTB calling seal_approve (proves DataLicense ownership)
-           → SealClient.decrypt(encryptedObject, { sessionKey, txBytes })
-           → recovers aesKeyBytes
-           → AES-GCM decrypt Walrus blob locally
-           → output/decrypted_dataset.json (demo only)
+Buyer    → PTB calling seal_approve (proves DataLicense ownership)
+         → SealClient.decrypt(encryptedObject, { sessionKey, txBytes })
+         → recovers aesKeyBytes
+         → gunzip + AES-GCM decrypt Walrus blob locally
 ```
 
 **Files:**
@@ -349,41 +315,12 @@ Buyer      → PTB calling seal_approve (proves DataLicense ownership)
 | `src/types.ts` | `DataAssetMetadata`, `EncryptionMaterial`, `SealAccessPolicy`, `SealAccessReceipt` |
 | `src/config.ts` | `MOCK_SEAL`, `MOCK_BUYER_HAS_LICENSE`, paths, Sui/Seal env vars |
 | `src/accessPolicy.ts` | `buildDataLicensePolicy()`, `explainPolicy()` |
-| `src/keyRegistry.ts` | Registry loaders: data_asset_registry, data_license_registry, seal_key_registry |
+| `src/keyRegistry.ts` | Registry loaders: data_asset_registry, seal_key_registry |
 | `src/sealClient.ts` | `initializeSealClient`, `registerKeyWithSeal`, `requestDecryptKey` |
-| `src/walrusHttp.ts` | Shared `fetchWalrusBlob(blobId)` — single implementation used by both `batchDecrypt.ts` and `decryptDataset.ts` |
+| `src/walrusHttp.ts` | `fetchWalrusBlob(blobId)` — shared HTTP fetch for both decrypt paths |
 | `src/decryptDataset.ts` | `decryptAes256Gcm()`, `decryptDatasetWithSealAccess()` |
-| `src/batchDecrypt.ts` | Batch decrypt all licensed DataAssets via Seal; uses `fetchWalrusBlob` from `walrusHttp.ts` |
+| `src/batchDecrypt.ts` | Batch decrypt all licensed DataAssets via Seal |
 | `src/index.ts` | CLI: `--user-id`, `--buyer`, `--data-asset-id`, `--metadata`, `--encrypted` |
-
-**Mock mode (`MOCK_SEAL=true`):**
-
-- Reads demo AES key from `input/encryption_key.demo.json`.
-- Simulates DataLicense ownership check (`MOCK_BUYER_HAS_LICENSE=true|false`).
-- Access-denied path writes receipt with `access_granted: false` and exits with code 1.
-- No network calls.
-
-**Real mode (`MOCK_SEAL=false`):**
-
-- Requires deployed `contracts/mars` package with `seal_approve` in `data_license.move`.
-- Requires Seal-registered AES key bundle in `seal_key_registry.json`.
-- Builds PTB calling `seal_approve`, submits to Seal key servers, decrypts locally.
-
-**Receipt format (`output/seal_access_receipt.json`):**
-
-```json
-{
-  "mode": "mock",
-  "buyer": "0x...",
-  "data_asset_id": "0x...",
-  "blob_id": "...",
-  "policy": "DATA_LICENSE_OWNERSHIP",
-  "access_granted": true,
-  "reason": "Mock buyer owns DataLicense",
-  "timestamp": "2026-05-27T...",
-  "decrypted_output_path": "output/decrypted_dataset.json"
-}
-```
 
 ---
 
@@ -394,26 +331,16 @@ Python buyer-side licensed data pipeline.
 **Pipeline (`main.py`):**
 
 1. `fetch_assets.py` — loads licensed DataAssets from simulator output.
-2. `decrypt_assets.py` — AES-256-GCM decrypt (uses local demo keys in MVP).
+2. `decrypt_assets.py` — AES-256-GCM decrypt (uses Seal-released key or local demo key).
 3. `merge_events.py` — merges rider + merchant + consumer events by `order_id`.
 4. `build_grid_time_dataset.py` — builds demand prediction rows (grid × 15-min window).
 5. `build_dispatch_dataset.py` — builds dispatch optimization candidate states.
-6. `export_buyer_dataset.py` — exports final JSON + CSV.
 
 **Key design decisions:**
 
-- `grid_index` (0–15 integer) included as categorical feature — prevents LightGBM from treating 16 grids identically despite 30% demand variation.
+- `grid_index` (0–15 integer) included as categorical feature — prevents LightGBM from treating 16 grids identically.
 - `rider_session_orders` tracks cumulative per-rider orders for `fairness_score`.
-- `grid_demand_map` per rider enables `demand_balance_score` (was previously a constant).
-- Temporal train/val split (85% train / 15% val) prevents future data leakage.
-
-**Outputs:**
-
-```
-aggregator/output/demand_prediction_dataset.json
-aggregator/output/demand_prediction_dataset.csv
-aggregator/output/dispatch_dataset.json
-```
+- Temporal train/val split (85% / 15%) prevents future data leakage.
 
 ---
 
@@ -423,41 +350,40 @@ aggregator/output/dispatch_dataset.json
 
 Predicts `future_30min_order_count` per grid-time window.
 
-**Features (16):**
+**Features (16):** `grid_index`, order counts (t, t-1, t-2), rider availability, pending orders, timing metrics, merchant density, `traffic_level`, `weather_code`, `hour_of_day`, `day_of_week`.
 
-```
-grid_index, order_count_t0, order_count_t_minus_1, order_count_t_minus_2,
-active_riders, available_riders, pending_orders,
-avg_accept_delay_min, avg_prep_time_min, avg_delivery_duration_min,
-merchant_count, merchant_density, traffic_level,
-weather_code, hour_of_day, day_of_week
-```
-
-Categorical features: `grid_index`, `weather_code`, `hour_of_day`, `day_of_week`.
-
-**Model:**
-
-1. **LightGBM** (`objective="poisson"`, `n_estimators=500`, early stopping at 50 rounds).
-2. **sklearn fallback** (`HistGradientBoostingRegressor(loss="poisson")`).
-3. Fails with explicit dependency error if neither is available.
+**Model:** LightGBM (`objective="poisson"`, 500 estimators, early stopping at 50 rounds).
 
 #### `dispatch_optimization/`
 
 Rule-based scoring for best-rider assignment.
 
-**Scoring formula:**
-
 ```
 dispatch_score =
-  0.40 × proximity_score       (ETA-based: 1 - eta_min / MAX_ETA_MIN)
-+ 0.18 × rider_idle_score      (1 - idle_time_min / MAX_IDLE_MIN)
-+ 0.17 × fairness_score        (1 - session_orders / max_session_orders)
-+ 0.25 × demand_balance_score  (1 - rider_grid_demand / max_grid_demand)
+  0.40 × proximity_score       (ETA-based)
++ 0.18 × rider_idle_score
++ 0.17 × fairness_score        (session order count)
++ 0.25 × demand_balance_score  (rider's current grid demand)
 ```
 
-All scores are clamped to [0, 1]. `demand_balance_score` is per-rider (uses the demand in the rider's current grid, not a global constant).
+`DispatchWeights` validates that weights sum to exactly 1.0 at construction time.
 
-**`DispatchWeights` invariant:** The frozen dataclass validates in `__post_init__` that `proximity + rider_idle + fairness + demand_balance == 1.0` (tolerance 1e-9). Any misconfigured weight combination raises `ValueError` at construction time.
+---
+
+### `mars-marketplace-design/`
+
+Next.js marketplace frontend. Reads pipeline output files at build/request time.
+
+**Data layer (`lib/marketplace-data.ts`):**
+
+- Reads `upload_manifest.json` + `data_asset_registry.json` + `pricing_report.json` + `seal_key_registry.json`.
+- One `Dataset` entry per shard upload record.
+- Falls back to `lib/sample-datasets.ts` if pipeline outputs are absent.
+
+**Purchase flow (`components/marketplace/purchase-modal.tsx`):**
+
+- Builds one PTB with N `purchase_access` calls (one per DataAsset in the dataset).
+- One wallet signature → N `DataLicense` objects minted.
 
 ---
 
@@ -467,21 +393,29 @@ All scores are clamped to [0, 1]. `demand_balance_score` is per-rider (uses the 
 simulator/users/all_users.json  (640 wallets)
          │
          ▼
-simulator/output/raw_assets/    (640 DataAsset JSON files)
+simulator/output/raw_assets/    (640 PersonalDataAsset JSON files)
          │
-         ▼
+         ▼ (aggregate by data_type × region × epoch)
 walrus-uploader
-  ├── AES-256-GCM encrypt
-  ├── → Walrus blob (blob_id)
-  ├── → SealClient.encrypt (Seal EncryptedObject)
+  ├── listing_authorizations.json   (simulated opt-in per user)
+  ├── contributor_accounting.json   (share_ppm per contributor per shard)
+  ├── shards/                       (aggregated shard JSON)
+  ├── encrypted/                    (gzip + AES-256-GCM ciphertext)
+  ├── → Walrus HTTP Publisher (blob_id per shard)
+  ├── → Sui register_data_shard PTB (DataAsset object ID per shard)
+  │      └── contracts/output/data_asset_registry.json
+  ├── → SealClient.encrypt (EncryptedObject per shard)
   │      └── seal-access/output/seal_key_registry.json
-  └── → Sui register_data_asset (DataAsset object ID)
-         └── contracts/output/data_asset_registry.json
+  └── upload_manifest.json
          │
-         ▼
-seal-access (buyer decrypt)
-  ├── Mock: demo key → AES-GCM decrypt → decrypted_dataset.json
-  └── Real: seal_approve PTB → Seal key servers → AES key → AES-GCM decrypt
+         ▼ (pricing)
+ai-pricing → set_quality_and_price → pricing_apply_receipt.json
+         │
+         ▼ (purchase)
+contracts/prepare_data_license → DataLicense objects → data_license_registry.json
+         │
+         ▼ (decrypt)
+seal-access → PTB seal_approve → Seal key servers → AES key → gunzip + decrypt
          │
          ▼
 aggregator/output/
@@ -496,37 +430,13 @@ ai-agent/
 
 ---
 
-## Mock vs Production
-
-| Layer | Current (mock) | Production |
-|---|---|---|
-| Walrus storage | `MOCK_WALRUS=true`: SHA-256 blob IDs | Real Walrus testnet/mainnet CLI |
-| DataAsset registration | `register_data_assets.ts` PTB on testnet | Same script; mainnet package |
-| DataLicense purchase | `prepare_data_license.ts` + mock USDC | Real USDC; buyer wallet |
-| Seal key release | `MOCK_SEAL=true`: demo key file | Real Seal key servers via `seal_approve` |
-| Aggregator decrypt | Demo AES key from `local_demo_keys.json` | Read Seal-released key per license |
-| Buyer identity | Env var / CLI arg | Wallet signature (zkLogin or direct) |
-| Frontend data | Local JSON reads | Indexed Sui/Walrus/Seal state via SDK |
-
----
-
 ## Security Model
 
-**Current protections:**
-
-- Plaintext raw data is never uploaded to Walrus; only AES-256-GCM ciphertext is stored.
-- In real upload mode, the raw AES key is passed directly to `SealClient.encrypt` and never written to disk.
+- Plaintext shard data is never uploaded to Walrus — only gzip-compressed AES-256-GCM ciphertext.
+- The AES key is passed directly to `SealClient.encrypt` and zeroed in memory immediately after — never written to disk.
 - `seal_approve` cryptographically enforces that only the holder of a valid on-chain `DataLicense` can trigger key release.
-- `encryption_key.demo.json` is clearly labelled as demo-only and unsafe.
-- Private keys in `simulator/users/` are gitignored.
-
-**Mock limitations (intentional for MVP):**
-
-- `encryption_key.demo.json` contains the raw AES key in plaintext — this is the demo shortcut that real Seal replaces.
-- `MOCK_SEAL=true` skips the on-chain DataLicense check.
-- `aggregator` uses local demo keys rather than requesting them through Seal.
-
-Each limitation has a direct production replacement path documented in `seal-access/src/sealClient.ts`.
+- SHA-256 commitment roots on-chain allow buyers to verify that the shard content, contributor set, and accounting records were not tampered with between registration and decryption.
+- Private keys in `simulator/users/` are gitignored. Never use simulator wallets for mainnet funds.
 
 ---
 
@@ -537,16 +447,21 @@ Each limitation has a direct production replacement path documented in `seal-acc
 pnpm simulator:wallets        # generate Sui wallets
 pnpm simulator:generate       # generate DataAssets
 pnpm walrus:upload            # encrypt + upload + register
-pnpm seal:decrypt:mock        # mock decrypt demo
-pnpm seal:typecheck           # TypeScript check for seal-access
+pnpm pricing:testnet          # AI pricing + on-chain submission
+pnpm contracts:license        # purchase DataLicenses
+pnpm seal:decrypt             # single-shard Seal decrypt
+pnpm aggregator:decrypt       # batch Seal decrypt
+pnpm aggregator:run           # build AI datasets
+pnpm ai:train                 # train and run models
+pnpm mars:e2e:testnet         # full pipeline
 
-# Contracts (21 unit tests)
+# Type checking
+pnpm walrus:typecheck
+pnpm seal:typecheck
+pnpm contracts:typecheck
+
+# Contracts (Move)
 cd contracts/mars
 sui move build
 sui move test   # → 21/21 pass
-pnpm --dir contracts register:data-assets
-pnpm --dir contracts prepare:data-license
-
-# AI pipeline
-scripts/run_mars_ai_pipeline.sh
 ```

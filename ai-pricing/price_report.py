@@ -15,6 +15,7 @@ from score_asset import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_ASSETS_DIR = PROJECT_ROOT / "simulator" / "output" / "raw_assets"
+SHARDS_DIR = PROJECT_ROOT / "walrus-uploader" / "output" / "shards"
 OUTPUT_PATH = PROJECT_ROOT / "ai-pricing" / "output" / "pricing_report.json"
 MODEL_VERSION = "rules-v1"
 
@@ -43,11 +44,52 @@ def load_raw_assets(raw_assets_dir: Path = RAW_ASSETS_DIR) -> list[dict[str, Any
     return assets
 
 
+def load_dataset_shards(shards_dir: Path = SHARDS_DIR) -> list[dict[str, Any]]:
+    if not shards_dir.exists():
+        return []
+
+    shard_paths = sorted(shards_dir.glob("*.json"))
+    shards: list[dict[str, Any]] = []
+    for shard_path in shard_paths:
+        try:
+            shard = json.loads(shard_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not read {shard_path}: {exc}") from exc
+
+        shard["_source_path"] = str(shard_path.relative_to(PROJECT_ROOT))
+        shards.append(shard)
+
+    return shards
+
+
+def shard_to_scoreable_asset(shard: dict[str, Any]) -> dict[str, Any]:
+    events: list[dict[str, Any]] = []
+    for asset in shard.get("assets", []):
+        if isinstance(asset, dict) and isinstance(asset.get("events"), list):
+            events.extend(event for event in asset["events"] if isinstance(event, dict))
+
+    return {
+        "asset_id": shard["shard_id"],
+        "owner_id": shard["shard_id"],
+        "owner": "dataset_shard",
+        "role": "aggregated",
+        "data_type": shard["data_type"],
+        "events": events,
+    }
+
+
 def build_report() -> dict[str, Any]:
     priced_assets = []
-    for asset in load_raw_assets():
+    shards = load_dataset_shards()
+    source_assets = [shard_to_scoreable_asset(shard) | {"_source_path": shard["_source_path"]} for shard in shards]
+    if not source_assets:
+        source_assets = load_raw_assets()
+
+    for asset in source_assets:
         priced = score_asset(asset)
         priced["source_path"] = asset["_source_path"]
+        if "shard_id" not in priced and asset.get("role") == "aggregated":
+            priced["shard_id"] = asset["asset_id"]
         priced_assets.append(priced)
 
     return {

@@ -29,10 +29,10 @@ echo "4. Evaluate DataAsset prices and submit pricing to Sui testnet"
 pnpm pricing:evaluate
 pnpm pricing:apply
 
-echo "5. List first DataAsset, mint TestUSDC, and purchase DataLicense"
+echo "5. List DataShard collection, mint TestUSDC, and purchase DataLicenses"
 pnpm contracts:license
 
-echo "6. Seal-gated decrypt for licensed buyer"
+echo "6. Seal-gated collection decrypt for licensed buyer"
 pnpm seal:decrypt
 
 echo "7. Aggregate licensed decrypted data"
@@ -53,8 +53,7 @@ for path in \
   contracts/output/data_asset_registry.json \
   contracts/output/data_license_registry.json \
   seal-access/output/seal_key_registry.json \
-  seal-access/output/seal_access_receipt.json \
-  seal-access/output/decrypted_dataset.json \
+  aggregator/output/buyer_workspace/decryption_manifest.json \
   aggregator/output/demand_prediction_dataset.csv \
   aggregator/output/dispatch_dataset.json \
   ai-agent/demand_prediction/output/demo_grid_predictions.json \

@@ -21,6 +21,7 @@
     "aggregator:run": "python3 aggregator/main.py",
     "ai:train": "python3 ai-agent/demand_prediction/train_demand_model.py && python3 ai-agent/demand_prediction/predict_demand.py && python3 ai-agent/dispatch_optimization/assign_rider.py",
     "mars:clean": "scripts/mars_clean.sh",
-    "mars:e2e:testnet": "scripts/mars_e2e_testnet.sh"
+    "mars:e2e:testnet": "scripts/mars_e2e_testnet.sh",
+    "testnet:clean-e2e": "scripts/mars_clean_e2e_testnet.sh"
   }
 }

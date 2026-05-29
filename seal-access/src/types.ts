@@ -26,6 +26,7 @@ export interface DataAssetMetadata {
   blob_id: string;
   data_type: string;
   contributors: Contributor[];
+  compression?: "gzip";
   encryption: {
     algorithm: "AES-256-GCM";
     /** Reference string used to look up the key material (e.g. "local_demo_key:consumer_001"). */
@@ -80,14 +81,25 @@ export interface SealAccessPolicy {
 }
 
 export interface DataAssetRegistryRecord {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
   blob_id: string;
   data_asset_id: string;
   data_type: string;
+  region?: string;
+  epoch?: string;
+  shard_content_hash?: string;
+  contributor_root?: string;
+  authorization_root?: string;
+  accounting_root?: string;
+  total_contributors?: number;
+  total_events?: number;
+  contributor_count?: number;
 }
 
 export interface DataLicenseRegistryRecord {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
   data_asset_id: string;
   data_license_id: string;
   buyer: string;
@@ -95,7 +107,8 @@ export interface DataLicenseRegistryRecord {
 }
 
 export interface SealKeyRegistryRecord {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
   blob_id: string;
   data_asset_id: string;
   data_type: string;

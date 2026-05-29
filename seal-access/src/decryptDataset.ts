@@ -19,6 +19,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createDecipheriv } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { config } from "./config.js";
 import { buildDataLicensePolicy, explainPolicy } from "./accessPolicy.js";
 import { fetchWalrusBlob } from "./walrusHttp.js";
@@ -103,7 +104,8 @@ export const decryptDatasetWithSealAccess = async (
   const mode = "real";
   const packageId = await parsePublishedPackageId();
   const dataAsset = selectDataAsset(await loadDataAssetRegistry(), opts.userId);
-  const walrusInput = await loadWalrusDatasetInput(dataAsset.user_id, opts.walrusOutputDir);
+  const recordId = dataAsset.shard_id ?? dataAsset.user_id;
+  const walrusInput = await loadWalrusDatasetInput(recordId, opts.walrusOutputDir);
   const metadata = walrusInput.metadata;
   validateMetadata(metadata);  // defence-in-depth: walrusOutput already validates, but we check here too
   const sealedKey = selectSealedKey(await loadSealKeyRegistry(), dataAsset.data_asset_id);
@@ -112,7 +114,7 @@ export const decryptDatasetWithSealAccess = async (
   const buyer = buyerSigner.getPublicKey().toSuiAddress();
 
   if (metadata.blob_id !== dataAsset.blob_id || sealedKey.blob_id !== dataAsset.blob_id) {
-    throw new Error(`Input mismatch for ${dataAsset.user_id}: blob_id differs across registries`);
+    throw new Error(`Input mismatch for ${recordId}: blob_id differs across registries`);
   }
 
   const policy = buildDataLicensePolicy(dataAsset.data_asset_id, packageId);
@@ -161,7 +163,8 @@ export const decryptDatasetWithSealAccess = async (
   const encryptedBytes = await fetchWalrusBlob(metadata.blob_id);
 
   console.log("Decrypting AES-256-GCM blob locally with key released by Seal...");
-  const plaintext = decryptAes256Gcm(encryptedBytes, aesKey, ivHex, authTagHex);
+  const decryptedBytes = decryptAes256Gcm(encryptedBytes, aesKey, ivHex, authTagHex);
+  const plaintext = metadata.compression === "gzip" ? gunzipSync(decryptedBytes) : decryptedBytes;
   console.log(`Decrypted ${plaintext.length} bytes.`);
 
   // ── Parse decrypted JSON ──────────────────────────────────────────────────
@@ -212,8 +215,8 @@ const validateMetadata = (meta: DataAssetMetadata): void => {
   if (!meta.data_type?.trim()) {
     throw new Error("Metadata is missing required field: data_type.");
   }
-  if (!Array.isArray(meta.contributors) || meta.contributors.length === 0) {
-    throw new Error("Metadata contributors must be a non-empty array.");
+  if (!Array.isArray(meta.contributors)) {
+    throw new Error("Metadata contributors must be an array.");
   }
   if (meta.encryption?.algorithm !== "AES-256-GCM") {
     throw new Error(

@@ -9,10 +9,14 @@ import { loadSigner, parsePublishedPackageId, signerFromPrivateKey } from "./sui
 dotenv.config({ path: path.join(__dirname, ".env") });
 
 type DataAssetRegistryRecord = {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
+  dataset_collection_id?: string;
   blob_id: string;
   data_asset_id: string;
   data_type: string;
+  region?: string;
+  epoch?: string;
 };
 
 type SimulatorUser = {
@@ -23,11 +27,15 @@ type SimulatorUser = {
 };
 
 type LicenseRegistryRecord = {
-  user_id: string;
+  user_id?: string;
+  shard_id?: string;
+  dataset_collection_id?: string;
   data_asset_id: string;
   data_license_id: string;
   buyer: string;
   data_type: string;
+  region?: string;
+  epoch?: string;
 };
 
 const contractsRoot = __dirname;
@@ -41,6 +49,7 @@ const config = {
   outputPath: path.resolve(contractsRoot, "output", "data_license_registry.json"),
   usersPath: path.resolve(projectRoot, "simulator/users/all_users.json"),
   buyerPrivateKey: process.env.BUYER_PRIVATE_KEY,
+  datasetCollectionId: process.env.DATASET_COLLECTION_ID,
 };
 
 const readJson = async <T>(filePath: string): Promise<T> =>
@@ -67,10 +76,12 @@ const selectPricing = (
   assetRecord: DataAssetRegistryRecord,
 ): { quality_score: number; price_micro_usdc: number } => {
   const pricing = report.assets.find(
-    (record) => record.owner_id === assetRecord.user_id && record.data_type === assetRecord.data_type,
+    (record) =>
+      record.owner_id === (assetRecord.shard_id ?? assetRecord.user_id) &&
+      record.data_type === assetRecord.data_type,
   );
   if (!pricing) {
-    throw new Error(`No pricing report record for ${assetRecord.user_id}:${assetRecord.data_type}`);
+    throw new Error(`No pricing report record for ${assetRecord.shard_id ?? assetRecord.user_id}:${assetRecord.data_type}`);
   }
   if (!Number.isInteger(pricing.price_micro_usdc) || pricing.price_micro_usdc <= 0) {
     throw new Error(`Invalid price_micro_usdc for ${assetRecord.user_id}:${assetRecord.data_type}`);
@@ -125,12 +136,12 @@ const ensureGas = async (
   recipient: string,
 ): Promise<void> => {
   const balance = await client.getBalance({ owner: recipient });
-  if (BigInt(balance.totalBalance) > 50_000_000n) {
+  if (BigInt(balance.totalBalance) > 5_000_000n) {
     return;
   }
 
   const tx = new Transaction();
-  const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(100_000_000n)]);
+  const [coin] = tx.splitCoins(tx.gas, [tx.pure.u64(10_000_000n)]);
   tx.transferObjects([coin], tx.pure.address(recipient));
   await execute(client, funder, tx);
   console.log(`Funded ${recipient} with testnet SUI for listing gas`);
@@ -140,77 +151,94 @@ const main = async (): Promise<void> => {
   const packageId = await parsePublishedPackageId(contractsRoot);
   const treasuryCapId = requireObjectId(config.usdcTreasuryCapId, "USDC_TREASURY_CAP_ID");
 
-  // Only processes the first DataAsset — sufficient for MVP demo where one asset is uploaded.
-  const [assetRecord] = await readJson<DataAssetRegistryRecord[]>(config.registryPath);
-  if (!assetRecord) {
+  const assetRecords = await readJson<DataAssetRegistryRecord[]>(config.registryPath);
+  const selectedAssets = config.datasetCollectionId
+    ? assetRecords.filter((asset) => asset.dataset_collection_id === config.datasetCollectionId)
+    : assetRecords;
+  if (selectedAssets.length === 0) {
     throw new Error(`No DataAsset registry records found in ${config.registryPath}`);
   }
 
   const users = await readJson<SimulatorUser[]>(config.usersPath);
-  const pricing = selectPricing(await readJson<PricingReport>(config.pricingReportPath), assetRecord);
-  const priceRaw = BigInt(pricing.price_micro_usdc);
-  const ownerUser = users.find((user) => user.user_id === assetRecord.user_id);
-  if (!ownerUser?.private_key) {
-    throw new Error(`Could not find simulator private key for ${assetRecord.user_id}`);
-  }
-
+  const pricingReport = await readJson<PricingReport>(config.pricingReportPath);
   const client = new SuiClient({ url: getFullnodeUrl(config.network as "testnet") });
   const adminBuyer = await loadSigner(config.buyerPrivateKey);
-  const ownerSigner = signerFromPrivateKey(ownerUser.private_key);
+  const defaultListingSigner = await loadSigner(process.env.SUI_PRIVATE_KEY);
   const buyerAddress = adminBuyer.getPublicKey().toSuiAddress();
-
-  await ensureGas(client, adminBuyer, ownerSigner.getPublicKey().toSuiAddress());
+  const registry: LicenseRegistryRecord[] = [];
 
   console.log(
-    `Using AI pricing for ${assetRecord.user_id}: quality=${pricing.quality_score}, price=${priceRaw.toString()} micro USDC`,
+    `Purchasing collection access for ${selectedAssets.length} DataShard(s)` +
+      (config.datasetCollectionId ? ` in ${config.datasetCollectionId}` : ""),
   );
 
-  const listTx = new Transaction();
-  listTx.moveCall({
-    target: `${packageId}::data_asset::set_for_sale`,
-    arguments: [
-      listTx.object(assetRecord.data_asset_id),
-      listTx.pure.bool(true),
-    ],
-  });
-  await execute(client, ownerSigner, listTx);
-  console.log(`Listed DataAsset ${assetRecord.data_asset_id}`);
+  for (const assetRecord of selectedAssets) {
+    const pricing = selectPricing(pricingReport, assetRecord);
+    const priceRaw = BigInt(pricing.price_micro_usdc);
+    const ownerUser = assetRecord.user_id
+      ? users.find((user) => user.user_id === assetRecord.user_id)
+      : undefined;
+    const listingSigner = ownerUser?.private_key
+      ? signerFromPrivateKey(ownerUser.private_key)
+      : defaultListingSigner;
 
-  const purchaseTx = new Transaction();
-  const payment = purchaseTx.moveCall({
-    target: `${packageId}::usdc::mint_for_testing`,
-    arguments: [
-      purchaseTx.object(treasuryCapId),
-      purchaseTx.pure.u64(priceRaw),
-    ],
-  });
-  purchaseTx.moveCall({
-    target: `${packageId}::data_license::purchase_access`,
-    arguments: [
-      purchaseTx.object(assetRecord.data_asset_id),
-      payment,
-      purchaseTx.object.clock(),
-    ],
-  });
-  const purchaseResult = await execute(client, adminBuyer, purchaseTx);
-  const licenseId = findCreatedObjectId(
-    purchaseResult.objectChanges,
-    "::data_license::DataLicense",
-  );
+    await ensureGas(client, adminBuyer, listingSigner.getPublicKey().toSuiAddress());
 
-  const registry: LicenseRegistryRecord[] = [
-    {
+    console.log(
+      `Using AI pricing for ${assetRecord.shard_id ?? assetRecord.user_id}: quality=${pricing.quality_score}, price=${priceRaw.toString()} micro USDC`,
+    );
+
+    const listTx = new Transaction();
+    listTx.moveCall({
+      target: `${packageId}::data_asset::set_for_sale`,
+      arguments: [
+        listTx.object(assetRecord.data_asset_id),
+        listTx.pure.bool(true),
+      ],
+    });
+    await execute(client, listingSigner, listTx);
+    console.log(`Listed DataShard ${assetRecord.data_asset_id}`);
+
+    const purchaseTx = new Transaction();
+    const payment = purchaseTx.moveCall({
+      target: `${packageId}::usdc::mint_for_testing`,
+      arguments: [
+        purchaseTx.object(treasuryCapId),
+        purchaseTx.pure.u64(priceRaw),
+      ],
+    });
+    purchaseTx.moveCall({
+      target: `${packageId}::data_license::purchase_access`,
+      arguments: [
+        purchaseTx.object(assetRecord.data_asset_id),
+        payment,
+        purchaseTx.object.clock(),
+      ],
+    });
+    const purchaseResult = await execute(client, adminBuyer, purchaseTx);
+    const licenseId = findCreatedObjectId(
+      purchaseResult.objectChanges,
+      "::data_license::DataLicense",
+    );
+
+    registry.push({
       user_id: assetRecord.user_id,
+      shard_id: assetRecord.shard_id,
+      dataset_collection_id: assetRecord.dataset_collection_id,
       data_asset_id: assetRecord.data_asset_id,
       data_license_id: licenseId,
       buyer: buyerAddress,
       data_type: assetRecord.data_type,
-    },
-  ];
+      region: assetRecord.region,
+      epoch: assetRecord.epoch,
+    });
+
+    console.log(`Purchased DataLicense ${licenseId} for ${assetRecord.shard_id ?? assetRecord.user_id}`);
+  }
 
   await mkdir(path.dirname(config.outputPath), { recursive: true });
   await writeFile(config.outputPath, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
-  console.log(`Purchased DataLicense ${licenseId} for buyer ${buyerAddress}`);
+  console.log(`Purchased ${registry.length} DataLicense object(s) for buyer ${buyerAddress}`);
   console.log(`Wrote ${config.outputPath}`);
 };
 

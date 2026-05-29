@@ -22,6 +22,7 @@ module mars::data_asset {
     const EInvalidQualityScore: u64 = 5; // score must be 0–100
     const EEmptyBlobId: u64         = 6; // blob_id must be non-empty
     const EEmptyDataType: u64       = 7; // data_type must be non-empty
+    const EEmptyCommitment: u64     = 8; // shard commitment fields must be non-empty
 
     // ── Structs ──────────────────────────────────────────────────────────────
 
@@ -38,6 +39,14 @@ module mars::data_asset {
         contributors: vector<Contributor>,
         blob_id: vector<u8>,        // Walrus blob identifier (bytes returned by Walrus SDK)
         data_type: vector<u8>,      // "rider_mobility" | "merchant_operations" | "consumer_behavior"
+        region: vector<u8>,         // aggregation region for shard-level datasets
+        epoch: vector<u8>,          // aggregation epoch for shard-level datasets
+        shard_content_hash: vector<u8>, // hash of canonical plaintext shard content
+        contributor_root: vector<u8>, // commitment to contributor manifests
+        authorization_root: vector<u8>, // commitment to listing authorizations
+        accounting_root: vector<u8>, // off-chain contributor accounting commitment
+        total_contributors: u64,    // total contributor rows committed off-chain
+        total_events: u64,          // total raw events in this shard
         quality_score: u64,         // 0–100; written by AI Agent after analysing the blob
         price_usdc: Option<u64>,    // None until AI Agent calls set_quality_and_price
         for_sale: bool,             // contributor toggles this to list the asset for AI purchase
@@ -81,6 +90,69 @@ module mars::data_asset {
             contributors,
             blob_id,
             data_type,
+            region: b"legacy_personal",
+            epoch: b"legacy",
+            shard_content_hash: b"legacy_personal_content",
+            contributor_root: b"legacy_personal_contributors",
+            authorization_root: b"legacy_personal_authorizations",
+            accounting_root: b"legacy_personal_accounting",
+            total_contributors: vector::length(&contributors),
+            total_events: 0,
+            quality_score: 0,
+            price_usdc: option::none(),
+            for_sale: false,
+            reward_pool: balance::zero(),
+            created_at: clock.timestamp_ms(),
+        };
+        transfer::share_object(asset);
+    }
+
+    /// Register an aggregated dataset shard.  Individual contributor shares are
+    /// kept off-chain and committed by `accounting_root`; the on-chain
+    /// contributor is the listing operator so shard registration does not scale
+    /// with the number of users in the cohort.
+    public fun register_data_shard(
+        blob_id: vector<u8>,
+        data_type: vector<u8>,
+        region: vector<u8>,
+        epoch: vector<u8>,
+        shard_content_hash: vector<u8>,
+        contributor_root: vector<u8>,
+        authorization_root: vector<u8>,
+        accounting_root: vector<u8>,
+        total_contributors: u64,
+        total_events: u64,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        assert!(vector::length(&blob_id) > 0, EEmptyBlobId);
+        assert!(vector::length(&data_type) > 0, EEmptyDataType);
+        assert!(vector::length(&shard_content_hash) > 0, EEmptyCommitment);
+        assert!(vector::length(&contributor_root) > 0, EEmptyCommitment);
+        assert!(vector::length(&authorization_root) > 0, EEmptyCommitment);
+        assert!(vector::length(&accounting_root) > 0, EEmptyCommitment);
+
+        let contributors = vector[
+            Contributor {
+                addr: ctx.sender(),
+                role: b"aggregator",
+                weight_bps: 10_000,
+            },
+        ];
+
+        let asset = DataAsset {
+            id: object::new(ctx),
+            contributors,
+            blob_id,
+            data_type,
+            region,
+            epoch,
+            shard_content_hash,
+            contributor_root,
+            authorization_root,
+            accounting_root,
+            total_contributors,
+            total_events,
             quality_score: 0,
             price_usdc: option::none(),
             for_sale: false,
@@ -161,6 +233,12 @@ module mars::data_asset {
     public fun get_price(asset: &DataAsset): Option<u64>   { asset.price_usdc }
     public fun quality_score(asset: &DataAsset): u64       { asset.quality_score }
     public fun blob_id(asset: &DataAsset): &vector<u8>     { &asset.blob_id }
+    public fun shard_content_hash(asset: &DataAsset): &vector<u8> { &asset.shard_content_hash }
+    public fun contributor_root(asset: &DataAsset): &vector<u8> { &asset.contributor_root }
+    public fun authorization_root(asset: &DataAsset): &vector<u8> { &asset.authorization_root }
+    public fun accounting_root(asset: &DataAsset): &vector<u8> { &asset.accounting_root }
+    public fun total_contributors(asset: &DataAsset): u64  { asset.total_contributors }
+    public fun total_events(asset: &DataAsset): u64        { asset.total_events }
     public fun reward_pool_value(asset: &DataAsset): u64   { balance::value(&asset.reward_pool) }
 
     // ── Private helpers ───────────────────────────────────────────────────────

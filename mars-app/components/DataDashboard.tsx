@@ -37,14 +37,14 @@ export function DataDashboard({ role, userId }: DataDashboardProps) {
   return (
     <View style={appStyles.content}>
       <View style={styles.headerBlock}>
-        <Text style={styles.title}>My Data Assets</Text>
+        <Text style={styles.title}>My Data Contributions</Text>
         <Text style={styles.subtitle}>
-          Encrypted delivery data you own and license to AI buyers.
+          Authorized raw data you contributed to aggregated marketplace shards.
         </Text>
       </View>
 
       <StatGrid>
-        <StatCard label="Total Data Assets" value={`${dashboard.total_assets}`} />
+        <StatCard label="Dataset Shards" value={`${dashboard.total_assets}`} />
         <StatCard label="Licenses Sold" value={`${dashboard.licenses_sold}`} />
       </StatGrid>
       <StatGrid>
@@ -53,10 +53,10 @@ export function DataDashboard({ role, userId }: DataDashboardProps) {
       </StatGrid>
 
       {dashboard.total_assets === 0 ? (
-        <EmptyState text="No data assets yet · Complete deliveries to generate encrypted data assets." />
+        <EmptyState text="No authorized shard contributions yet." />
       ) : (
         <>
-          <SectionTitle>DataAsset list</SectionTitle>
+          <SectionTitle>Contribution shards</SectionTitle>
           {dashboard.assets.map((asset) => (
             <DataAssetCard key={asset.asset_id} asset={asset} />
           ))}
@@ -130,11 +130,12 @@ function DataAssetCard({ asset }: { asset: DashboardAsset }) {
       </View>
       <Text style={appStyles.muted}>blob: {shortId(asset.blob_id, 14)}</Text>
       <View style={styles.metricRow}>
-        <MiniMetric label="Price" value={`$${asset.price_usdc}`} />
+        <MiniMetric label="Share" value={`${(asset.share_ppm / 10000).toFixed(2)}%`} />
+        <MiniMetric label="Events" value={`${asset.event_count}`} />
+        <MiniMetric label="Claimable" value={`$${asset.total_earned_usdc.toFixed(2)}`} />
         <MiniMetric label="Licenses" value={`${asset.license_count}`} />
-        <MiniMetric label="Earned" value={`$${asset.total_earned_usdc.toFixed(2)}`} />
-        <MiniMetric label="Access" value={`${asset.access_grant_count}`} />
       </View>
+      <Text style={appStyles.muted}>{asset.region} · {asset.epoch}</Text>
     </Card>
   );
 }

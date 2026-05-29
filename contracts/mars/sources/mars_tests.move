@@ -888,6 +888,46 @@ module mars::mars_tests {
     }
 
     #[test]
+    /// register_data_shard persists shard commitment fields and aggregate counts.
+    fun test_register_data_shard_commitments_succeed() {
+        let mut scenario = ts::begin(ADMIN);
+
+        ts::next_tx(&mut scenario, ADMIN);
+        {
+            let clock = clock::create_for_testing(ts::ctx(&mut scenario));
+            data_asset::register_data_shard(
+                b"walrus_blob",
+                b"consumer_behavior",
+                b"santa_monica",
+                b"2026-W22",
+                b"shard_content_hash",
+                b"contributor_root",
+                b"authorization_root",
+                b"accounting_root",
+                500,
+                16_043,
+                &clock,
+                ts::ctx(&mut scenario),
+            );
+            clock::destroy_for_testing(clock);
+        };
+
+        ts::next_tx(&mut scenario, ADMIN);
+        {
+            let asset = ts::take_shared<DataAsset>(&scenario);
+            assert!(*data_asset::shard_content_hash(&asset) == b"shard_content_hash", 0);
+            assert!(*data_asset::contributor_root(&asset) == b"contributor_root", 1);
+            assert!(*data_asset::authorization_root(&asset) == b"authorization_root", 2);
+            assert!(*data_asset::accounting_root(&asset) == b"accounting_root", 3);
+            assert!(data_asset::total_contributors(&asset) == 500, 4);
+            assert!(data_asset::total_events(&asset) == 16_043, 5);
+            ts::return_shared(asset);
+        };
+
+        ts::end(scenario);
+    }
+
+    #[test]
     #[expected_failure(abort_code = data_asset::ENotContributor)]
     /// set_for_sale aborts when called by an address that is not a contributor.
     fun test_set_for_sale_non_contributor_aborts() {
