@@ -1,10 +1,14 @@
 export const SUI_NETWORK = "testnet" as const
 
-export const MARS_PACKAGE_ID =
-  "0x32201b4b767ac91d40234e87c58ea7e8a68e06653dc23a6eba84e4adca6ad613"
+const requireEnv = (key: string): string => {
+  const value = process.env[key]
+  if (!value) throw new Error(`Missing env var ${key} — copy .env.local.example to .env.local and fill in the values`)
+  return value
+}
 
-export const SEAL_PACKAGE_ID =
-  "0x4debd417b55934090560e79b5153fdb2729d0aebf6cd097aff52de0ba6bd8c70"
+export const MARS_PACKAGE_ID = requireEnv("NEXT_PUBLIC_MARS_PACKAGE_ID")
+
+export const SEAL_PACKAGE_ID = requireEnv("NEXT_PUBLIC_SEAL_PACKAGE_ID")
 
 export const USDC_COIN_TYPE = `${MARS_PACKAGE_ID}::usdc::USDC` as const
 
