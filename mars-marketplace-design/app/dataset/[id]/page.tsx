@@ -1,8 +1,12 @@
 import { notFound } from "next/navigation"
-import { getMarketplaceDatasets, getMarketplaceDatasetById } from "@/lib/marketplace-data"
+import {
+  getMarketplaceDatasets,
+  getMarketplaceDatasetById,
+  marketplaceProductSlugs,
+} from "@/lib/marketplace-data"
 import { DatasetDetailClient } from "./dataset-detail-client"
 
-export const dynamicParams = false
+export const dynamicParams = true
 
 interface DatasetDetailPageProps {
   params: Promise<{
@@ -12,7 +16,9 @@ interface DatasetDetailPageProps {
 
 export async function generateStaticParams() {
   const datasets = await getMarketplaceDatasets()
-  return datasets.map((dataset) => ({ id: dataset.id }))
+  const ids = new Set([...marketplaceProductSlugs, ...datasets.map((dataset) => dataset.id)])
+
+  return Array.from(ids, (id) => ({ id }))
 }
 
 export default async function DatasetDetailPage({ params }: DatasetDetailPageProps) {

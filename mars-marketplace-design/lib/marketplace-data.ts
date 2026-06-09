@@ -123,6 +123,8 @@ const PRODUCT_META: Record<string, { name: string; type: string; tags: string[] 
   },
 }
 
+export const marketplaceProductSlugs = Object.keys(PRODUCT_META)
+
 const title = (value?: string) =>
   value ? value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase()) : ""
 
@@ -160,6 +162,7 @@ const buildShardDataset = async (
   const assets: DatasetAsset[] = []
   let totalBytes = 0
   const uploadId = upload.shard_id ?? upload.user_id
+  const datasetId = dataType
 
   const reg = sources.registry.find(
     r => (r.shard_id ?? r.user_id) === uploadId && r.blob_id === upload.blob_id,
@@ -191,7 +194,7 @@ const buildShardDataset = async (
   const first = assets[0]
 
   return {
-    id: uploadId ?? dataType,
+    id: datasetId,
     name: label,
     type: meta.type,
     qualityScore: pricing?.quality_score ?? 0,
@@ -228,5 +231,5 @@ export const getMarketplaceDatasets = async (): Promise<Dataset[]> => {
 
 export const getMarketplaceDatasetById = async (id: string): Promise<Dataset | undefined> => {
   const datasets = await getMarketplaceDatasets()
-  return datasets.find(d => d.id === id)
+  return datasets.find(d => d.id === id || d.id.startsWith(`${id}__`) || id.startsWith(`${d.id}__`))
 }
