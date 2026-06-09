@@ -8,7 +8,7 @@ const requireEnv = (key: string): string => {
 
 export const MARS_PACKAGE_ID = requireEnv("NEXT_PUBLIC_MARS_PACKAGE_ID")
 
-export const SEAL_PACKAGE_ID = requireEnv("NEXT_PUBLIC_SEAL_PACKAGE_ID")
+export const SEAL_PACKAGE_ID = process.env.NEXT_PUBLIC_SEAL_PACKAGE_ID ?? ""
 
 export const USDC_COIN_TYPE = `${MARS_PACKAGE_ID}::usdc::USDC` as const
 
