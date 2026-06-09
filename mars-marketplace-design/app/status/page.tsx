@@ -70,10 +70,10 @@ const services: ServiceStatus[] = [
     lastChecked: "30s ago",
   },
   {
-    name: "IPFS Pinning",
-    status: "degraded",
-    uptime: "98.50%",
-    latency: "250ms",
+    name: "Walrus Blob Replication",
+    status: "operational",
+    uptime: "99.90%",
+    latency: "180ms",
     lastChecked: "30s ago",
   },
 ]

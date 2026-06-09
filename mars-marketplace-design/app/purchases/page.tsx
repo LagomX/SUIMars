@@ -17,25 +17,25 @@ import {
   Target,
 } from "lucide-react"
 
-// Mock licensed datasets
+// Testnet DataLicense NFTs — minted 2026-06-09
 const licensedDatasets = [
   {
-    id: "1",
-    name: "Santa Monica Rider Mobility",
-    type: "Mobility & Transportation",
-    qualityScore: 94,
-    purchaseDate: "2024-01-15T10:30:00Z",
-    licenseObjectId: "0x9e4d1a7f3c8b5e2d6a9f1c4b7e8d3a2f5c6b9e1d",
+    id: "consumer_behavior",
+    name: "Consumer Behavior Dataset",
+    type: "Consumer Behavior",
+    qualityScore: 88,
+    purchaseDate: "2026-06-09T22:24:05.038Z",
+    licenseObjectId: "0x9291b6f7f33611a58d8e8702439ec79df377dbd68451d752fa472e85c361b602",
     sealVerified: true,
     decryptEnabled: true,
   },
   {
-    id: "4",
-    name: "Urban ETA Signals",
-    type: "Logistics & Delivery",
-    qualityScore: 96,
-    purchaseDate: "2024-01-14T08:15:00Z",
-    licenseObjectId: "0x6f1b3a5c8e2d9f4b7c1a5e8d3f6b9c2a5e8d1f4b",
+    id: "merchant_operations",
+    name: "Merchant Operations Dataset",
+    type: "Retail Operations",
+    qualityScore: 90,
+    purchaseDate: "2026-06-09T22:24:05.039Z",
+    licenseObjectId: "0xf99437f6c537cbb9a32667df88955d39c4244549bb5efa50987c71fd6c5a0239",
     sealVerified: true,
     decryptEnabled: true,
   },

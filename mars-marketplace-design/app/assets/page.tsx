@@ -38,37 +38,37 @@ interface MyDataset {
 
 const myDatasets: MyDataset[] = [
   {
-    id: "1",
-    name: "Downtown SF Delivery Routes",
+    id: "rider_mobility",
+    name: "Rider Mobility Dataset",
     type: "Mobility & Transportation",
     status: "active",
-    qualityScore: 92,
-    totalEarnings: 12450,
-    totalPurchases: 47,
-    lastUpdated: "2024-01-15",
+    qualityScore: 90,
+    totalEarnings: 135000,
+    totalPurchases: 1,
+    lastUpdated: "2026-06-09",
     sealProtected: true,
   },
   {
-    id: "2",
-    name: "Restaurant Wait Time Patterns",
-    type: "Hospitality & Food",
+    id: "merchant_operations",
+    name: "Merchant Operations Dataset",
+    type: "Retail Operations",
+    status: "active",
+    qualityScore: 90,
+    totalEarnings: 108000,
+    totalPurchases: 1,
+    lastUpdated: "2026-06-09",
+    sealProtected: true,
+  },
+  {
+    id: "consumer_behavior",
+    name: "Consumer Behavior Dataset",
+    type: "Consumer Behavior",
     status: "active",
     qualityScore: 88,
-    totalEarnings: 8320,
-    totalPurchases: 31,
-    lastUpdated: "2024-01-14",
+    totalEarnings: 88000,
+    totalPurchases: 1,
+    lastUpdated: "2026-06-09",
     sealProtected: true,
-  },
-  {
-    id: "3",
-    name: "Retail Foot Traffic Analysis",
-    type: "Consumer Behavior",
-    status: "pending",
-    qualityScore: 0,
-    totalEarnings: 0,
-    totalPurchases: 0,
-    lastUpdated: "2024-01-15",
-    sealProtected: false,
   },
 ]
 
@@ -113,7 +113,7 @@ export default function AssetsPage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Total Earnings</p>
                       <p className="text-xl font-semibold text-foreground">
-                        ${totalEarnings.toLocaleString()}
+                        {totalEarnings.toLocaleString()} µUSDC
                       </p>
                     </div>
                   </div>
@@ -248,7 +248,7 @@ export default function AssetsPage() {
                           {dataset.totalPurchases}
                         </TableCell>
                         <TableCell className="font-medium text-foreground">
-                          ${dataset.totalEarnings.toLocaleString()}
+                          {dataset.totalEarnings.toLocaleString()} µUSDC
                         </TableCell>
                         <TableCell className="pr-6 text-right">
                           <div className="flex items-center justify-end gap-2">
