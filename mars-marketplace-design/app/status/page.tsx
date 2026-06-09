@@ -89,8 +89,8 @@ const recentEvents: RecentEvent[] = [
   {
     id: "2",
     type: "warning",
-    title: "IPFS Pinning Latency Increased",
-    description: "Experiencing higher than normal latency on IPFS pinning operations",
+    title: "Walrus Blob Replication Latency Increased",
+    description: "Experiencing higher than normal latency on Walrus blob replication",
     timestamp: "23 minutes ago",
   },
   {
