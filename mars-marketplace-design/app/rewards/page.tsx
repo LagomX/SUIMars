@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { Sidebar } from "@/components/marketplace/sidebar"
 import { TopBar } from "@/components/marketplace/top-bar"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -111,8 +110,6 @@ const quests: Quest[] = [
 ]
 
 export default function RewardsPage() {
-  const [walletConnected] = useState(true)
-
   const totalPoints = 4250
   const claimedRewards = rewards.filter((r) => r.status === "claimed").length
   const availableRewards = rewards.filter((r) => r.status === "available").length

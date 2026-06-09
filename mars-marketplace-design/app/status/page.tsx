@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { Sidebar } from "@/components/marketplace/sidebar"
 import { TopBar } from "@/components/marketplace/top-bar"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -111,8 +110,6 @@ const recentEvents: RecentEvent[] = [
 ]
 
 export default function StatusPage() {
-  const [walletConnected] = useState(true)
-
   const operationalCount = services.filter((s) => s.status === "operational").length
   const allOperational = operationalCount === services.length
 

@@ -80,7 +80,7 @@ Every step is verifiable on-chain: the `DataAsset` commitment roots allow a buye
 # Prerequisites: node >= 20, pnpm >= 9, python3, sui CLI
 pnpm install && pnpm --dir simulator install && pnpm --dir walrus-uploader install
 pnpm --dir seal-access install && pnpm --dir contracts install
-python3 -m pip install -r aggregator/requirements.txt ai-agent/requirements.txt
+python3 -m pip install -r aggregator/requirements.txt -r ai-agent/requirements.txt
 
 cp walrus-uploader/.env.example walrus-uploader/.env   # fill SUI_PRIVATE_KEY, ADMIN_CAP_ID
 cp seal-access/.env.example seal-access/.env
@@ -90,3 +90,4 @@ pnpm mars:e2e:testnet
 ```
 
 See [TESTNET.md](TESTNET.md) for step-by-step instructions and [ARCHITECTURE.md](ARCHITECTURE.md) for a full module reference.
+For judges, see [SUBMISSION.md](SUBMISSION.md) for the verification checklist, demo flow, and receipt placeholders.

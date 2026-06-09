@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { Sidebar } from "@/components/marketplace/sidebar"
 import { TopBar } from "@/components/marketplace/top-bar"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
@@ -74,8 +73,6 @@ const myDatasets: MyDataset[] = [
 ]
 
 export default function AssetsPage() {
-  const [walletConnected] = useState(true)
-
   const totalEarnings = myDatasets.reduce((sum, d) => sum + d.totalEarnings, 0)
   const totalPurchases = myDatasets.reduce((sum, d) => sum + d.totalPurchases, 0)
   const activeDatasets = myDatasets.filter((d) => d.status === "active").length
