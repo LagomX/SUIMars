@@ -1,0 +1,109 @@
+{
+  "network": "sui-testnet",
+  "run_at": "2026-06-09T22:24:00Z",
+  "package_id": "0xe6109124a4fd79a577eae339274a3150b0ecb11760af669f02debdf538d4a7d0",
+  "admin_address": "0x48ab56344e49f7dde97c5c9e1934424d82e0cee05164339d4cd6726314a128fe",
+  "buyer_address": "0x48ab56344e49f7dde97c5c9e1934424d82e0cee05164339d4cd6726314a128fe",
+  "summary": {
+    "simulated_contributors": 640,
+    "simulated_orders": 16043,
+    "data_assets_registered": 3,
+    "data_licenses_purchased": 3,
+    "walrus_blobs_uploaded": 3,
+    "seal_decrypted_assets": 640,
+    "demand_prediction_rows": 10752,
+    "dispatch_states": 500
+  },
+  "pricing": {
+    "model_version": "rules-v1",
+    "applied_at": "2026-06-09T22:24:07.377Z"
+  },
+  "ai_outputs": {
+    "demand_model": {
+      "algorithm": "lightgbm",
+      "training_rows": 9139,
+      "validation_rows": 1613,
+      "validation_rmse": 1.3353
+    },
+    "dispatch_assignment": {
+      "order": "ord_000002",
+      "rider": "rider_007",
+      "score": 0.7553
+    }
+  },
+  "unauthorized_access_check": {
+    "timestamp": "2026-06-09T22:28:37.915Z",
+    "buyer": "0xe56180a70204278e24951d2cf95506270069807cce2b56eb8df4a0d59c02a2fe",
+    "data_asset_id": "0x49bf2c59966e3dbcbb79b7dc97dcb4d48298f123fe4dc5c677974c56f27eb43e",
+    "data_license_id": "0x9291b6f7f33611a58d8e8702439ec79df377dbd68451d752fa472e85c361b602",
+    "blob_id": "h-DPMWCdUO-zL-Edj-A7hjhRpYHHNqBBUfJfyf7gvKc",
+    "policy": "DATA_LICENSE_OWNERSHIP",
+    "access_granted": false,
+    "reason": "Seal refused key release because the transaction signer did not own the DataLicense object."
+  },
+  "assets": [
+    {
+      "shard_id": "consumer_behavior__santa_monica__2026-W22",
+      "data_type": "consumer_behavior",
+      "region": "santa_monica",
+      "epoch": "2026-W22",
+      "data_asset_id": "0x49bf2c59966e3dbcbb79b7dc97dcb4d48298f123fe4dc5c677974c56f27eb43e",
+      "data_license_id": "0x9291b6f7f33611a58d8e8702439ec79df377dbd68451d752fa472e85c361b602",
+      "walrus_blob_id": "h-DPMWCdUO-zL-Edj-A7hjhRpYHHNqBBUfJfyf7gvKc",
+      "purchase_tx_digest": "9Liu56bVqqBi45ebKjzQ5osTqt7gmJcKiR9zPBFcRP8D",
+      "data_asset_object_digest": "HAkKdbM4EQeZVQWCkq2pDYgastAJy16gv8pzPuMdCSg2",
+      "data_license_object_digest": "7wqmP1ZMBDwdVHx45WWXjQWB4GZ6tR3eVuVTbcGRBCYV",
+      "quality_score": 88,
+      "price_micro_usdc": 88000,
+      "contributors": 500,
+      "events": 16043,
+      "seal_decrypted_asset_count": 500,
+      "shard_content_hash": "bacc76159eb0980b84844db5f47e5a9f071ef391aeac47983417dd6876d8387d",
+      "contributor_root": "18776989c40596d9c048b3380f39fdb4864192f2c1bcc75298250bbbe772b793",
+      "authorization_root": "542f8fb2a4ae60a84363008a3477a68f09afb58ff1e4aadfe86fe9ecf6751e52",
+      "accounting_root": "2d8f45ad959a8589b1b6bc704897a37b745ef6c6e2ad43d9f4f7809d7ae935e8"
+    },
+    {
+      "shard_id": "merchant_operations__santa_monica__2026-W22",
+      "data_type": "merchant_operations",
+      "region": "santa_monica",
+      "epoch": "2026-W22",
+      "data_asset_id": "0xedc6a06afd53c0a4c3f3deff06a88edc17ed9006036cb62763af774635a55304",
+      "data_license_id": "0xf99437f6c537cbb9a32667df88955d39c4244549bb5efa50987c71fd6c5a0239",
+      "walrus_blob_id": "9VGz7e2ArGuDIURhuW3bknLNkFRm4uAMliv2CpV8ciA",
+      "purchase_tx_digest": "2tF2thCjbGUrFCs8GxisdEV7eAMuDQpZXkWjhc9iFoKc",
+      "data_asset_object_digest": "C1TGm1g6guDpes3MZHdShmHTuPbKykYZ8ivHK4qe258a",
+      "data_license_object_digest": "8XgsqVWd3d8xzpMp3cfEDxA21tQiQNsMM3TW1bau7Qoi",
+      "quality_score": 90,
+      "price_micro_usdc": 108000,
+      "contributors": 40,
+      "events": 16043,
+      "seal_decrypted_asset_count": 40,
+      "shard_content_hash": "6455fb0bad8475c229e030383818619717eae87386747b785b328daa2b3f2b43",
+      "contributor_root": "eceb4321b07a1f8512230c270fafe1db2fa866d795cdba2333b8823f5b14cb7d",
+      "authorization_root": "ea442410f916fad6ff92de38086a6bb85779d06db73fe0fbded3cde9b17a7665",
+      "accounting_root": "aa9bb36a8379ea29fa7c648ab18de1fb83b25228eef50f5af0155d91b85bdd46"
+    },
+    {
+      "shard_id": "rider_mobility__santa_monica__2026-W22",
+      "data_type": "rider_mobility",
+      "region": "santa_monica",
+      "epoch": "2026-W22",
+      "data_asset_id": "0xfb105f92e2e296effa8a7777a146b4b1e9ad63107e2c862cc6e130a1ea32850a",
+      "data_license_id": "0x384dbbcbc9b5dfdd6c737d8e32cd9969fed798094fa2b83829af60b1d60dbc95",
+      "walrus_blob_id": "Tqevczm-ccjb5dkeWDG9WWX9qQTcqclITSARne2kHew",
+      "purchase_tx_digest": "6ZsAn6faTqH2xj3ZxCfu1CVH59EKdUHFAH8jRVyJaFP3",
+      "data_asset_object_digest": "5n6sDtmSy3pbQXLPS6kqjwhcwVhxuiK9YWRnuL479iJL",
+      "data_license_object_digest": "7WbBrGPbsK43VoakPUncHvx8qenBLoxa5KnYMPdenzPb",
+      "quality_score": 90,
+      "price_micro_usdc": 135000,
+      "contributors": 100,
+      "events": 32086,
+      "seal_decrypted_asset_count": 100,
+      "shard_content_hash": "1ccdcba07c70b5bc6293a57893f5a6cf0281ca70a20d088b69a337a1f77e9241",
+      "contributor_root": "2582140fcc690190149e77cf5f209aed6dad28b2b02ac32638988b75311880ad",
+      "authorization_root": "9462c59d6170771f2a8b1435843e5d36f33cab129aa41ab0a003428d72fa7188",
+      "accounting_root": "963f181e7f0211008e48649f3ce48d5b7727527dc735306a797ec2919ba635c0"
+    }
+  ]
+}

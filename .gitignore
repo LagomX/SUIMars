@@ -38,6 +38,7 @@ aggregator/output/
 ai-pricing/output/
 ai-agent/demand_prediction/output/
 ai-agent/dispatch_optimization/output/
+contracts/output/
 publish-testnet*.json
 *.local.json
 

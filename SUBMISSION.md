@@ -6,7 +6,11 @@ Mars is a Sui + Walrus + Seal protocol for contributor-owned gig economy data. I
 
 - Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Testnet runbook: [TESTNET.md](TESTNET.md)
+- Project logo: [mars-logo.png](mars-marketplace-design/public/mars-logo.png)
+- Recommended track: Walrus
+- Public GitHub repo: https://github.com/LagomX/SUIMars
 - Sui package: `0xe6109124a4fd79a577eae339274a3150b0ecb11760af669f02debdf538d4a7d0`
+- Testnet receipt: [testnet-rehearsal.json](receipts/testnet-rehearsal.json)
 - Demo video: `TODO: add video link`
 - Live marketplace: `TODO: add deployed URL`
 - Repository commit: `TODO: add final commit hash after committing submission edits`
@@ -75,16 +79,15 @@ After a full run, record the public receipts here:
 
 | Artifact | Value |
 |---|---|
-| Admin address | `TODO` |
-| Buyer address | `TODO` |
+| Admin address | `0x48ab56344e49f7dde97c5c9e1934424d82e0cee05164339d4cd6726314a128fe` |
+| Buyer address | `0x48ab56344e49f7dde97c5c9e1934424d82e0cee05164339d4cd6726314a128fe` |
 | Sui package ID | `0xe6109124a4fd79a577eae339274a3150b0ecb11760af669f02debdf538d4a7d0` |
-| Example DataAsset object | `TODO` |
-| Example DataLicense object | `TODO` |
-| Example Walrus blob ID | `TODO` |
-| Pricing transaction digest | `TODO` |
-| License purchase transaction digest | `TODO` |
-| Seal decrypt receipt | `TODO` |
-| Unauthorized decrypt receipt | `TODO` |
+| Example DataAsset object | `0x49bf2c59966e3dbcbb79b7dc97dcb4d48298f123fe4dc5c677974c56f27eb43e` |
+| Example DataLicense object | `0x9291b6f7f33611a58d8e8702439ec79df377dbd68451d752fa472e85c361b602` |
+| Example Walrus blob ID | `h-DPMWCdUO-zL-Edj-A7hjhRpYHHNqBBUfJfyf7gvKc` |
+| Example license purchase transaction digest | `9Liu56bVqqBi45ebKjzQ5osTqt7gmJcKiR9zPBFcRP8D` |
+| Seal decrypt receipt | `receipts/testnet-rehearsal.json`, 640 assets decrypted across 3 licensed shards |
+| Unauthorized decrypt receipt | `receipts/testnet-rehearsal.json`, `unauthorized_access_check.access_granted=false` |
 
 ## Demo Script
 
