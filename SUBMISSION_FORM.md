@@ -37,7 +37,7 @@ AI companies need high-quality, consented, verifiable data for logistics and dem
 
 - Network: Sui testnet
 - Package ID: `0xe6109124a4fd79a577eae339274a3150b0ecb11760af669f02debdf538d4a7d0`
-- Marketplace URL: `TODO: add deployed URL`
+- Marketplace URL: https://sui-mars.vercel.app
 - Demo video: `TODO: add YouTube URL`
 - GitHub repo: https://github.com/LagomX/SUIMars
 - Project logo: `mars-marketplace-design/public/mars-logo.png`

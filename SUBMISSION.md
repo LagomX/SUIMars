@@ -12,7 +12,7 @@ Mars is a Sui + Walrus + Seal protocol for contributor-owned gig economy data. I
 - Sui package: `0xe6109124a4fd79a577eae339274a3150b0ecb11760af669f02debdf538d4a7d0`
 - Testnet receipt: [testnet-rehearsal.json](receipts/testnet-rehearsal.json)
 - Demo video: `TODO: add video link`
-- Live marketplace: `TODO: add deployed URL`
+- Live marketplace: https://sui-mars.vercel.app
 - Repository commit: `TODO: add final commit hash after committing submission edits`
 
 ## What To Review
